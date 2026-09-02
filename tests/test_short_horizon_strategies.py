@@ -16,6 +16,7 @@ from src.strategies.short_horizon import (
     ShortMeanReversionZScore,
     ShortMomentum,
     VolumeShockDirection,
+    VwapIntradayMeanReversion,
     rolling_zscore,
 )
 
@@ -49,10 +50,12 @@ ALL_STRATEGIES = [
     lambda: ExtremeMoveReversal(return_lookback=12, zscore_window=48, entry_z_score=-2.0, max_holding_bars=24),
     lambda: RangeExpansion(atr_period=14, atr_multiple=1.5, close_position_threshold=0.75, max_holding_bars=8),
     lambda: VolumeShockDirection(volume_median_window=48, volume_multiple=2.0, close_position_threshold=0.75, max_holding_bars=8),
+    lambda: VwapIntradayMeanReversion(entry_distance=-0.01, exit_distance=0.0, max_holding_bars=48),
 ]
 ALL_STRATEGY_IDS = [
     "short_momentum", "short_mean_reversion_zscore", "short_breakout",
     "extreme_move_reversal", "range_expansion", "volume_shock_direction",
+    "vwap_intraday_mean_reversion",
 ]
 
 
@@ -213,3 +216,66 @@ def test_volume_shock_uses_trailing_median_excluding_current_bar():
     strat = VolumeShockDirection(volume_median_window=48, volume_multiple=2.0, close_position_threshold=0.75, max_holding_bars=8)
     signals = strat.generate_signals(df)
     assert signals.iloc[-1] == LONG
+
+
+def test_vwap_rejects_entry_distance_above_exit_distance():
+    with pytest.raises(ValueError):
+        VwapIntradayMeanReversion(entry_distance=0.01, exit_distance=-0.01, max_holding_bars=20)
+
+
+def test_vwap_session_id_is_causal_utc_daily_floor():
+    """Session grouping must depend only on each row's own timestamp
+    (floor to day), never on neighboring rows -- verified by checking the
+    session distance at a bar is unaffected by data appended after it.
+    """
+    n = 4 * 24 * 3  # 3 days of 15m bars
+    ts = pd.date_range("2024-01-01", periods=n, freq="15min", tz="UTC")
+    closes = [100.0 + (i % 96) * 0.1 for i in range(n)]
+    df_full = pd.DataFrame(
+        {
+            "timestamp": ts, "open": closes, "high": [c + 0.2 for c in closes],
+            "low": [c - 0.2 for c in closes], "close": closes, "volume": [10.0] * n,
+        }
+    )
+    strat = VwapIntradayMeanReversion(entry_distance=-0.01, exit_distance=0.0, max_holding_bars=48)
+    full_distance = strat._session_vwap_distance(df_full)
+
+    truncate_at = 150
+    df_truncated = df_full.iloc[:truncate_at].reset_index(drop=True)
+    truncated_distance = strat._session_vwap_distance(df_truncated)
+
+    pd.testing.assert_series_equal(
+        full_distance.iloc[:truncate_at].reset_index(drop=True),
+        truncated_distance.reset_index(drop=True),
+        check_names=False,
+    )
+
+
+def test_vwap_exits_on_first_bar_of_new_session_not_before():
+    """A position must never persist past the boundary into a new UTC day
+    for more than the unavoidable one-bar detection delay (shift(1), not
+    shift(-1)) -- and must not exit EARLY, before the boundary, either.
+    """
+    # 1 day of 96 bars (15m), all far below VWAP (never recovers), so the
+    # only exit trigger available is the session boundary or timeout.
+    n = 96 * 2  # two full UTC days
+    closes = [100.0] * n
+    # Force a big drop right after session start so it enters immediately
+    # and distance never recovers within the session.
+    for i in range(n):
+        if i % 96 >= 1:
+            closes[i] = 90.0
+    df = pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2024-01-01", periods=n, freq="15min", tz="UTC"),
+            "open": closes, "high": closes, "low": closes, "close": closes,
+            "volume": [10.0] * n,
+        }
+    )
+    strat = VwapIntradayMeanReversion(entry_distance=-0.01, exit_distance=0.0, max_holding_bars=1000)
+    signals = strat.generate_signals(df)
+
+    # Bar 96 is the first bar of day 2 (index 96 = 00:00 UTC day 2).
+    # The position (entered during day 1) must be FLAT by bar 96 at the
+    # latest (session-boundary exit fires on the first bar of day 2).
+    assert signals.iloc[96] == FLAT

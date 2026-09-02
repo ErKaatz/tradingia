@@ -323,3 +323,110 @@ class VolumeShockDirection(TimeoutExitStrategy):
 
     def exit_condition(self, df: pd.DataFrame) -> pd.Series:
         return pd.Series(False, index=df.index)  # timeout-only exit, per the mechanism
+
+
+# ---------------------------------------------------------------------------
+# Task 9: VWAP intraday mean reversion -- implemented as a marked-weak
+# experiment, not a mechanism the project endorses as economically sound.
+# ---------------------------------------------------------------------------
+
+
+class VwapIntradayMeanReversion(TimeoutExitStrategy):
+    """EXPERIMENTAL / METHODOLOGICALLY WEAK. See the module-level docstring
+    section "VWAP session-definition limitations" before using any result
+    from this strategy for anything beyond curiosity.
+
+    Mechanism (as usually stated for traditional, single-exchange, session-
+    based markets): price trading far below the session's volume-weighted
+    average price may revert back toward VWAP as the session progresses,
+    because VWAP is a reference many participants (especially execution
+    algorithms) are known to trade around.
+
+    Implementation: VWAP is computed causally within an explicit UTC daily
+    session (00:00:00 UTC session boundary, matching the project's existing
+    UTC-everywhere convention), resetting cumulative price*volume and
+    volume sums at each session start -- the sums up to and including bar i
+    depend only on bars from that session's start through i, never on a
+    future bar or a future session. Distance is measured as
+    (close - session_vwap) / session_vwap. Enter LONG when this distance is
+    below `entry_distance` (a fixed negative threshold); exit at/above
+    `exit_distance` (typically 0, "back to VWAP"), after `max_holding_bars`,
+    or on the FIRST bar of the next session (detected causally via
+    shift(1), i.e. one bar after the actual boundary -- not shift(-1),
+    which would require knowing the boundary in advance and would violate
+    the project's anti-lookahead rule) -- so a position is never carried
+    meaningfully across the arbitrary session reset, since doing so would
+    silently smuggle in a second, undocumented assumption about session
+    continuity.
+
+    ## VWAP session-definition limitations (documented per Task 9)
+
+    BTC/USDT trades continuously 24/7 with no open, close, or official
+    session of its own -- unlike the equities/futures markets VWAP mean-
+    reversion is traditionally studied in, where session boundaries
+    correspond to a real halt in trading and a real reset of order flow.
+    Defining a "session" as UTC midnight-to-midnight is an arbitrary
+    convention with NO economic anchor: no material fraction of BTC market
+    participants is known to treat 00:00 UTC as special, so a VWAP reset at
+    that instant does not correspond to any actual change in market
+    structure or participant behavior. Any reversion effect this strategy
+    finds could easily be an artifact of the arbitrary reset point rather
+    than a genuine "distance from a reference price" mechanism -- e.g. a
+    reset shortly after a real intraday extreme would mechanically produce
+    a large "distance from VWAP" reading having nothing to do with mean-
+    reversion behavior. This is why the strategy is retained as a MARKED
+    WEAK experiment rather than promoted alongside Families A-F: it is
+    included so its (likely weak) results are visible and documented,
+    exactly as `RESEARCH_RULES.md` requires failed/dubious experiments to
+    remain visible rather than be silently omitted.
+    """
+
+    name = "vwap_intraday_mean_reversion_experimental"
+
+    def __init__(self, entry_distance: float, exit_distance: float, max_holding_bars: int):
+        if entry_distance >= exit_distance:
+            raise ValueError("entry_distance must be < exit_distance (enter below, exit above)")
+        super().__init__(
+            max_holding_bars=max_holding_bars, entry_distance=entry_distance, exit_distance=exit_distance
+        )
+        self.entry_distance = entry_distance
+        self.exit_distance = exit_distance
+
+    @property
+    def warmup_bars(self) -> int:
+        return 0  # each UTC session resets independently; no cross-session warm-up needed
+
+    def _session_vwap_distance(self, df: pd.DataFrame) -> pd.Series:
+        ts = pd.to_datetime(df["timestamp"], utc=True)
+        session_id = ts.dt.floor("D")
+
+        typical_price = (df["high"] + df["low"] + df["close"]) / 3.0
+        pv = typical_price * df["volume"]
+
+        # Cumulative sums WITHIN each session only: groupby().cumsum() over
+        # a session id computed purely from each row's own timestamp is
+        # causal by construction -- session_id at row i depends only on
+        # row i's own timestamp, and the cumulative sum up to row i depends
+        # only on rows <= i within the same session.
+        cum_pv = pv.groupby(session_id).cumsum()
+        cum_volume = df["volume"].groupby(session_id).cumsum()
+        session_vwap = cum_pv / cum_volume.replace(0.0, pd.NA)
+
+        return (df["close"] - session_vwap) / session_vwap
+
+    def entry_condition(self, df: pd.DataFrame) -> pd.Series:
+        distance = self._session_vwap_distance(df)
+        return distance.notna() & (distance < self.entry_distance)
+
+    def exit_condition(self, df: pd.DataFrame) -> pd.Series:
+        distance = self._session_vwap_distance(df)
+        ts = pd.to_datetime(df["timestamp"], utc=True)
+        session_id = ts.dt.floor("D")
+        # Exit as soon as the CURRENT bar's session differs from the PRIOR
+        # bar's session (i.e. this bar is the first bar of a new session,
+        # so the position must already have been closed by the end of the
+        # previous one). Uses shift(1) -- strictly backward-looking -- not
+        # shift(-1), which would require knowing the future boundary and
+        # would violate the project's anti-lookahead rule.
+        session_changed = session_id != session_id.shift(1)
+        return (distance.notna() & (distance >= self.exit_distance)) | session_changed.fillna(False)
