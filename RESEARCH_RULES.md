@@ -94,3 +94,26 @@ Si una decisión de implementación no es evidente por sí sola (por ejemplo,
 cómo se modela el slippage, o qué pasa con una posición abierta al final
 del dataset), debe quedar documentada en el código o en el README, no solo
 en la cabeza de quien la escribió.
+
+## 12. Warm-up de indicadores no es lo mismo que data leakage
+
+`validation` y `test` pueden usar velas cronológicamente anteriores
+(`train`, o `train+validation` respectivamente) únicamente para calentar
+indicadores (ver `warmup_bars` en `src/strategies/base.py`). Esto es
+correcto y necesario — sin ello, una SMA(100) arrancaría en frío al
+principio de cada split y produciría señales artificialmente distintas de
+las que produciría en producción. La línea que nunca debe cruzarse: esas
+velas de warm-up jamás pueden abrir, mantener ni cerrar una posición, ni
+contar en el equity curve, trades o métricas de ese split — si alguna vez lo
+hicieran, dejaría de ser `independent_split_evaluation` y empezaría a
+inflar artificialmente el resultado del split. Ver
+`tests/test_warmup.py` para la prueba de que esto se cumple.
+
+## 13. No declarar una estrategia robusta solo porque el modo de evaluación cambió
+
+Corregir un error metodológico (como el warm-up de indicadores) puede hacer
+que el resultado de `test` cambie, a veces mejorando. Eso no es evidencia de
+que la estrategia sea mejor — es evidencia de que la medición anterior
+estaba sesgada. Un resultado post-corrección todavía debe pasar por todas
+las demás reglas (comparación con buy-and-hold, número de trades,
+sensibilidad de parámetros, etc.) antes de tomarse en serio.
