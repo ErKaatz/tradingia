@@ -6,3 +6,12 @@ data/processed/
 results/
 .pytest_cache/
 *.egg-info/
+
+# Research artifacts (generated results, NOT the src/research/ code) are
+# regenerable from code + config + the pinned dataset hash recorded in each
+# phase's metadata.json. Kept out of git to keep the repo light; re-run the
+# documented CLI commands to regenerate. Anchored to repo root so it does
+# not also match src/research/.
+/research/
+/research.2/
+*.zip

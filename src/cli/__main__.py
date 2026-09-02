@@ -20,6 +20,11 @@ from src.data.loader import download_and_cache, load_ohlcv
 from src.data.providers import BinancePublicProvider
 from src.experiments.config import ExperimentConfig
 from src.experiments.runner import run_experiment, save_experiment
+from src.research.runner import run_phase2
+from src.research.phase25 import run_phase25
+from src.research.holdout_eval import run_final_holdout
+from src.research.diagnostics import run_holdout_diagnostics
+from src.forward.runner import preregister_forward, run_forward_eval
 
 
 def cmd_download_data(args: argparse.Namespace) -> None:
@@ -90,6 +95,37 @@ def cmd_compare(args: argparse.Namespace) -> None:
         print(df.to_string(index=False))
 
 
+
+def cmd_research(args: argparse.Namespace) -> None:
+    reports = run_phase2(args.config_path)
+    print(f"Phase-2 research reports saved to {reports}")
+
+
+def cmd_research25(args: argparse.Namespace) -> None:
+    reports = run_phase25(args.config_path)
+    print(f"Phase-2.5 research reports saved to {reports}")
+
+
+def cmd_final_holdout(args: argparse.Namespace) -> None:
+    reports = run_final_holdout(args.config_path)
+    print(f"FINAL HOLDOUT consumed for frozen candidates; reports saved to {reports}")
+
+
+def cmd_diagnose_holdout(args: argparse.Namespace) -> None:
+    reports = run_holdout_diagnostics(args.config_path)
+    print(f"Post-holdout diagnostics saved to {reports}")
+
+
+def cmd_preregister_forward(args: argparse.Namespace) -> None:
+    out = preregister_forward(args.config_path)
+    print(f"Forward hypotheses preregistered at {out}")
+
+
+def cmd_forward_eval(args: argparse.Namespace) -> None:
+    out = run_forward_eval(args.config_path)
+    print(f"Forward evaluation reports saved to {out}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m src.cli")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -108,6 +144,30 @@ def build_parser() -> argparse.ArgumentParser:
     p_compare = subparsers.add_parser("compare", help="Compare multiple experiment result folders")
     p_compare.add_argument("result_dirs", nargs="+", help="Paths under results/")
     p_compare.set_defaults(func=cmd_compare)
+
+    p_research = subparsers.add_parser("research", help="Run locked-holdout Phase-2 research")
+    p_research.add_argument("config_path", help="Path to Phase-2 YAML config")
+    p_research.set_defaults(func=cmd_research)
+
+    p_research25 = subparsers.add_parser("research25", help="Run locked-holdout Phase-2.5 breakout robustness study")
+    p_research25.add_argument("config_path", help="Path to Phase-2.5 YAML config")
+    p_research25.set_defaults(func=cmd_research25)
+
+    p_holdout = subparsers.add_parser("final-holdout", help="One-time final holdout evaluation for frozen breakout candidates")
+    p_holdout.add_argument("config_path", help="Path to frozen final-holdout YAML config")
+    p_holdout.set_defaults(func=cmd_final_holdout)
+
+    p_diag = subparsers.add_parser("diagnose-holdout", help="Diagnose consumed holdout without parameter optimization")
+    p_diag.add_argument("config_path", help="Path to post-holdout diagnostic YAML config")
+    p_diag.set_defaults(func=cmd_diagnose_holdout)
+
+    p_pre = subparsers.add_parser("preregister-forward", help="Freeze post-holdout forward hypotheses before new data")
+    p_pre.add_argument("config_path", help="Path to forward validation YAML config")
+    p_pre.set_defaults(func=cmd_preregister_forward)
+
+    p_fwd = subparsers.add_parser("forward-eval", help="Evaluate frozen hypotheses only on forward data from 2026-09-03 onward")
+    p_fwd.add_argument("config_path", help="Path to forward validation YAML config")
+    p_fwd.set_defaults(func=cmd_forward_eval)
 
     return parser
 

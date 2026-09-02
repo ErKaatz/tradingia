@@ -117,3 +117,45 @@ que la estrategia sea mejor — es evidencia de que la medición anterior
 estaba sesgada. Un resultado post-corrección todavía debe pasar por todas
 las demás reglas (comparación con buy-and-hold, número de trades,
 sensibilidad de parámetros, etc.) antes de tomarse en serio.
+
+## Phase 2 additions — registered before multi-year results
+
+14. **FINAL_HOLDOUT is locked.** Data from 2025-01-01 onward is not used to select, tune, reject, compare, or refine strategies during Phase 2. `allow_final_holdout_evaluation` remains false and the runner refuses Phase-2 execution if it is enabled.
+15. **Count every test.** Record the number of hypothesis families and total parameter variants evaluated. A best result is interpreted in the context of all alternatives tried (multiple-testing risk).
+16. **Prefer parameter regions, not isolated peaks.** An isolated high-return parameter set with weak neighbors is a robustness warning, not a discovery.
+17. **Stress without retuning.** Cost stress and fixed-parameter walk-forward tests do not trigger parameter changes inside the same evaluation cycle.
+18. **Failed experiments remain visible.** Negative or inconclusive hypotheses are logged rather than deleted or silently redefined.
+19. **No profitability language in Phase 2.** Allowed labels are `REJECTED`, `PROMISING BUT UNPROVEN`, and `NEEDS MORE DATA/TESTING` only.
+
+## Phase 2.5 — frozen breakout robustness study
+
+- The Phase-2.5 grid is frozen before its results are inspected: entry lookback `[96,120,144,168,192,240]` and exit lookback `[36,48,60,72]`.
+- Do not refine the grid after seeing Phase-2.5 results. A later refinement would be a new hypothesis family / research phase and must be counted as additional multiple testing.
+- A local parameter plateau is evidence of robustness only when neighboring settings also behave reasonably; a single spike is not a candidate.
+- All 24 Phase-2.5 variants receive identical cost-stress scenarios. Stress testing is not restricted to variants chosen after ranking.
+- Entry-time regime labels use only trailing information: 90-day return for trend and 30-day realized volatility for volatility. Regime labels are diagnostics only and may not alter trades in Phase 2.5.
+- The stricter Phase-2.5 triage requires long-horizon coverage, at least 60% positive calendar years, local plateau support, survival under the extreme registered cost scenario, and either excess return or at least 20 percentage points of max-drawdown reduction versus Buy & Hold.
+- `PROMISING BUT UNPROVEN` remains a research triage label, never a claim of future profitability.
+- FINAL_HOLDOUT from 2025-01-01 remains locked throughout Phase 2.5.
+
+## Final holdout opening — preregistered decision (2026-09-02)
+
+The 2025+ final holdout is authorized to be opened exactly once for two frozen breakout candidates only:
+
+- Breakout 168/60
+- Breakout 168/72
+
+This consumes the holdout for **both** configurations. No third parameter set may be tested on 2025+ and no tuning decision may subsequently describe 2025+ as untouched out-of-sample evidence. Pre-2025 rows are permitted only as trailing indicator warm-up; the portfolio starts FLAT at the holdout boundary. Cost stress A-E may be calculated for these same two frozen candidates, but must not be used to search new parameters.
+
+## Post-holdout diagnostics
+
+Once the 2025+ final holdout has been opened, it is consumed forever for the tested family. Diagnostic analysis of that period may be used to generate new hypotheses, but any threshold, filter, stop, confirmation rule, regime rule, or parameter inspired by those diagnostics is post-hoc. It must not be described as out-of-sample evidence and must be validated only on genuinely future forward/paper data.
+
+## Phase 3 — forward-only hypotheses after consumed holdout
+
+- The 2025-01-01 through 2026-09-02 period is permanently consumed and may not be presented as fresh out-of-sample evidence again.
+- Phase-3 forward evaluation begins at **2026-09-03 00:00 UTC**.
+- Exactly four hypotheses are preregistered: baseline breakout 168/60, baseline breakout 168/72, 168/60 with fixed 24h confirmation, and 168/60 with an adaptive trailing-volatility gate.
+- The 24h confirmation and volatility-gate ideas were motivated by post-holdout diagnostics and are therefore **post-hoc hypotheses**, not validated improvements.
+- No parameter grid, threshold search, or retroactive selection is allowed on 2025-2026 for these hypotheses.
+- Success/failure of Phase 3 must be judged only from forward/paper observations dated 2026-09-03 or later.

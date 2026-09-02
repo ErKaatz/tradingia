@@ -256,3 +256,31 @@ factor, drawdown y Sharpe por experimento y partición.
 - Paper trading en tiempo real sobre `src/execution/`, manteniendo la misma
   separación de responsabilidades (fuente de datos encapsulada, sin lógica
   de decisión en la capa de ejecución).
+
+## Phase 2 — robustness research
+
+Phase 2 is intentionally separate from the normal train/validation/test experiment runner. It adds a locked final holdout, controlled parameter studies, yearly stability reports, fixed-parameter walk-forward evaluation, cost stress, trade-return Monte Carlo diagnostics, and a Donchian-style breakout strategy.
+
+Download the multi-year BTCUSDT 1h cache on a machine with network access:
+
+```bash
+./scripts/download_phase2_dataset.sh 2018-01-01 2026-09-02
+```
+
+Then run:
+
+```bash
+python -m src.cli research configs/research_phase2.yaml
+```
+
+The Phase-2 config locks `2025-01-01` onward as `FINAL_HOLDOUT`. The Phase-2 runner refuses to run if `allow_final_holdout_evaluation` is enabled. Reports are written under `research/`; holdout metrics are not generated.
+
+## Phase 2.5: focused breakout robustness
+
+After Phase 2, run the frozen breakout-neighborhood robustness pass without opening FINAL_HOLDOUT:
+
+```bash
+python -m src.cli research25 configs/research_phase25.yaml
+```
+
+It evaluates exactly 24 pre-registered breakout variants and writes plateau, cost-stress, fixed walk-forward, trade-regime and Monte Carlo reports to `research/phase25/`. The 2025+ final holdout remains blocked by code.
