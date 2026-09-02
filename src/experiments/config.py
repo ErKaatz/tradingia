@@ -22,6 +22,7 @@ class ExperimentConfig:
     position_size_fraction: float = 1.0
     start: str | None = None
     end: str | None = None
+    allow_data_gaps: bool = False
     raw: dict[str, Any] = field(default_factory=dict)
 
     @staticmethod
@@ -49,6 +50,7 @@ class ExperimentConfig:
             position_size_fraction=float(raw.get("position_size_fraction", 1.0)),
             start=raw.get("start"),
             end=raw.get("end"),
+            allow_data_gaps=bool(raw.get("allow_data_gaps", False)),
             raw=raw,
         )
 
@@ -64,4 +66,5 @@ class ExperimentConfig:
             "position_size_fraction": self.position_size_fraction,
             "start": self.start,
             "end": self.end,
+            "allow_data_gaps": self.allow_data_gaps,
         }

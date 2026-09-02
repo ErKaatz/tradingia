@@ -67,6 +67,7 @@ import pandas as pd
 from src.backtesting.engine import BacktestConfig, BacktestEngine, BacktestResult
 from src.data.loader import dataset_hash, load_ohlcv
 from src.data.splitter import chronological_split, slice_with_warmup
+from src.data.validation import validate_ohlcv
 from src.experiments.config import ExperimentConfig
 from src.metrics.metrics import build_metrics_report
 from src.strategies.registry import build_strategy
@@ -105,6 +106,15 @@ def run_experiment(
             f"Only {len(df)} candles available for {config.symbol} {config.timeframe}; "
             "need more data to run a meaningful backtest with train/validation/test splits."
         )
+
+    # Validate the FULL dataset once, up front, with the timeframe-specific
+    # gap policy from the config. BTC/USDT spot at 1h is expected to trade
+    # continuously, so allow_data_gaps defaults to False; a market/dataset
+    # known to have legitimate gaps can opt in via config.
+    ohlcv_validation = validate_ohlcv(
+        df, timeframe=config.timeframe, allow_gaps=config.allow_data_gaps
+    )
+    ohlcv_validation.raise_if_invalid()
 
     split = chronological_split(
         df,
