@@ -1,0 +1,20 @@
+symbol: BTCUSDT
+timeframe: 1h
+final_holdout_start: "2025-01-01"
+allow_data_gaps: true
+allow_parameter_search: false
+
+# Frozen before inspecting any 2025+ strategy results.
+# The order is deliberate and enforced by code.
+candidates:
+  - entry_lookback: 168
+    exit_lookback: 60
+  - entry_lookback: 168
+    exit_lookback: 72
+
+capital:
+  initial: 10000
+fees:
+  trading_fee: 0.001
+  slippage: 0.0002
+position_size_fraction: 1.0
