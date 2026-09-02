@@ -1,0 +1,26 @@
+# POST-HOC / HOLDOUT ALREADY CONSUMED
+#
+# This is NOT a new holdout config. 2025-01-01 -> 2026-09-02 was already
+# consumed by configs/final_holdout.yaml for the two frozen breakout
+# candidates. This config re-evaluates OTHER Phase-2-registered
+# configurations (sma_cross, momentum, mean_reversion) against that same
+# already-consumed period, purely for retrospective/descriptive analysis.
+#
+# recent_start / recent_end are frozen in src/research/post_holdout_family_comparison.py
+# (RECENT_START, RECENT_END) and repeated here only for legibility; changing
+# these values in this file does nothing -- the module rejects any mismatch
+# with a PermissionError rather than silently widening or narrowing the
+# already-consumed window.
+symbol: BTCUSDT
+timeframe: 1h
+recent_start: "2025-01-01"
+recent_end: "2026-09-02"
+allow_data_gaps: true
+allow_parameter_search: false
+
+capital:
+  initial: 10000
+fees:
+  trading_fee: 0.001
+  slippage: 0.0002
+position_size_fraction: 1.0

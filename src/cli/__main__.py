@@ -24,6 +24,7 @@ from src.research.runner import run_phase2
 from src.research.phase25 import run_phase25
 from src.research.holdout_eval import run_final_holdout
 from src.research.diagnostics import run_holdout_diagnostics
+from src.research.post_holdout_family_comparison import run_post_holdout_family_comparison
 from src.forward.runner import preregister_forward, run_forward_eval
 
 
@@ -116,6 +117,11 @@ def cmd_diagnose_holdout(args: argparse.Namespace) -> None:
     print(f"Post-holdout diagnostics saved to {reports}")
 
 
+def cmd_post_holdout_family_comparison(args: argparse.Namespace) -> None:
+    out = run_post_holdout_family_comparison(args.config_path)
+    print(f"POST-HOC / HOLDOUT ALREADY CONSUMED family comparison saved to {out}")
+
+
 def cmd_preregister_forward(args: argparse.Namespace) -> None:
     out = preregister_forward(args.config_path)
     print(f"Forward hypotheses preregistered at {out}")
@@ -160,6 +166,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_diag = subparsers.add_parser("diagnose-holdout", help="Diagnose consumed holdout without parameter optimization")
     p_diag.add_argument("config_path", help="Path to post-holdout diagnostic YAML config")
     p_diag.set_defaults(func=cmd_diagnose_holdout)
+
+    p_phfc = subparsers.add_parser(
+        "post-holdout-family-comparison",
+        help="POST-HOC / HOLDOUT ALREADY CONSUMED: compare other Phase-2 families against the consumed 2025-2026 period",
+    )
+    p_phfc.add_argument("config_path", help="Path to post-holdout family comparison YAML config")
+    p_phfc.set_defaults(func=cmd_post_holdout_family_comparison)
 
     p_pre = subparsers.add_parser("preregister-forward", help="Freeze post-holdout forward hypotheses before new data")
     p_pre.add_argument("config_path", help="Path to forward validation YAML config")
