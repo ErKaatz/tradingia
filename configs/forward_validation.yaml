@@ -1,0 +1,8 @@
+symbol: BTCUSDT
+timeframe: 1h
+forward_start: 2026-09-03T00:00:00Z
+output_dir: research/forward
+initial_capital: 10000
+trading_fee: 0.001
+slippage: 0.0002
+position_size_fraction: 1.0
