@@ -7,25 +7,75 @@ the SAME fixed parameters on train, validation, and test. It does not search
 over parameters. Any workflow that inspects validation or test metrics and
 then changes strategy_params in the config is, from that point on, no longer
 producing an out-of-sample result for that data — see RESEARCH_RULES.md.
+
+## Split evaluation mode: `independent_split_evaluation`
+
+This is the ONLY mode implemented so far. Each split (train/validation/test)
+is evaluated as its own self-contained backtest:
+
+- starts FLAT with the full configured initial capital, regardless of what
+  the strategy or portfolio was doing right before the split started;
+- may use OHLCV history from strictly before the split's start purely to
+  warm up indicators (see `warmup_bars` below) — that history affects what
+  signal the strategy produces at the split's first bars, but can never
+  itself be traded on, and never contributes to the split's equity curve,
+  trades, or metrics;
+- force-closes any open position at the split's own last bar.
+
+This deliberately does NOT simulate a portfolio that carries capital and
+open positions continuously from train through validation through test. It
+answers "how does this fixed strategy behave, independently, in each of
+these three periods" — not "what would one continuous run from start to
+finish have done." The latter is a different, currently unimplemented mode:
+
+## Future mode (not implemented): `continuous_walk_forward`
+
+A future mode where capital and position state carry over continuously
+across split boundaries (so validation starts wherever train's simulation
+left off, not flat with fresh capital). This is materially different from
+independent_split_evaluation — e.g. a position opened near the end of train
+could still be open when validation begins — and must not be silently
+conflated with it. When implemented, it should be a distinct, explicitly
+selected mode (e.g. an `evaluation_mode` config field), not a variant
+hidden inside `independent_split_evaluation`'s code path.
+
+## Warm-up bars
+
+A strategy declares how many leading bars of history it needs to produce a
+non-degenerate signal via `Strategy.warmup_bars` (e.g. an SMA(100) crossover
+needs 99 bars before the slow SMA is defined). For validation and test,
+those warm-up bars are borrowed from the chronologically preceding data
+(train, or train+validation respectively) via `slice_with_warmup` — never
+from data after the split's end. `train` has no earlier split to borrow
+from, so its own leading `warmup_bars` rows are simply cold (indicators
+degrade to their `min_periods`/NaN behavior there, same as before this
+change), which is inherent to it being the first period in the dataset.
 """
 
 from __future__ import annotations
 
 import json
+import platform
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 import pandas as pd
 
 from src.backtesting.engine import BacktestConfig, BacktestEngine, BacktestResult
 from src.data.loader import dataset_hash, load_ohlcv
-from src.data.splitter import chronological_split
+from src.data.splitter import chronological_split, slice_with_warmup
 from src.experiments.config import ExperimentConfig
 from src.metrics.metrics import build_metrics_report
 from src.strategies.registry import build_strategy
 
 RESULTS_DIR = Path("results")
+
+EVALUATION_MODE = "independent_split_evaluation"
+
+TRACKED_PACKAGES = ["pandas", "numpy", "pyyaml", "pyarrow", "requests"]
 
 
 @dataclass
@@ -33,13 +83,16 @@ class SplitRunResult:
     split_name: str
     result: BacktestResult
     metrics: dict
+    warmup_bars_requested: int
+    warmup_bars_available: int
 
 
 def run_experiment(
     config: ExperimentConfig,
     raw_dir: Path = Path("data/raw"),
 ) -> dict[str, SplitRunResult]:
-    """Run the configured strategy on train/validation/test splits.
+    """Run the configured strategy on train/validation/test splits, using
+    `independent_split_evaluation` semantics (see module docstring).
 
     Returns a dict keyed by split name ("train", "validation", "test").
     """
@@ -68,21 +121,79 @@ def run_experiment(
     )
     engine = BacktestEngine(backtest_config)
 
+    # warmup_bars is a property of the strategy+params, not of the data, so
+    # build one throwaway instance up front just to read it.
+    warmup_bars = build_strategy(config.strategy, config.strategy_params).warmup_bars
+
     results: dict[str, SplitRunResult] = {}
-    for split_name, split_df in [
-        ("train", split.train),
-        ("validation", split.validation),
-        ("test", split.test),
+    for split_name, bounds in [
+        ("train", split.train_bounds),
+        ("validation", split.validation_bounds),
+        ("test", split.test_bounds),
     ]:
-        if len(split_df) < 2:
+        if len(bounds) < 2:
             continue
+
+        extended_df, evaluation_start = slice_with_warmup(df, bounds, warmup_bars)
+        # evaluation_start equals how many warm-up rows were actually
+        # available/borrowed; it is < warmup_bars only near the very start
+        # of the whole dataset (i.e. within train), where there is no prior
+        # history left to borrow.
+        warmup_bars_available = evaluation_start
+
         strategy = build_strategy(config.strategy, config.strategy_params)
-        signals = strategy.generate_signals(split_df)
-        result = engine.run(split_df, signals)
+        signals = strategy.generate_signals(extended_df)
+        result = engine.run(extended_df, signals, evaluation_start=evaluation_start)
         metrics = build_metrics_report(result, config.timeframe)
-        results[split_name] = SplitRunResult(split_name=split_name, result=result, metrics=metrics)
+        results[split_name] = SplitRunResult(
+            split_name=split_name,
+            result=result,
+            metrics=metrics,
+            warmup_bars_requested=warmup_bars,
+            warmup_bars_available=warmup_bars_available,
+        )
 
     return results
+
+
+def _get_package_versions() -> dict[str, str | None]:
+    versions: dict[str, str | None] = {}
+    for pkg in TRACKED_PACKAGES:
+        try:
+            versions[pkg] = version(pkg)
+        except PackageNotFoundError:
+            versions[pkg] = None
+    return versions
+
+
+def _get_git_commit() -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            return None
+        return result.stdout.strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return None
+
+
+def _build_reproducibility_info(config: ExperimentConfig) -> dict:
+    return {
+        "python_version": platform.python_version(),
+        "package_versions": _get_package_versions(),
+        "git_commit": _get_git_commit(),
+        "evaluation_mode": EVALUATION_MODE,
+        "backtest_engine_config": {
+            "initial_capital": config.capital_initial,
+            "trading_fee": config.trading_fee,
+            "slippage": config.slippage,
+            "position_size_fraction": config.position_size_fraction,
+        },
+    }
 
 
 def save_experiment(
@@ -111,6 +222,14 @@ def save_experiment(
         "num_candles": len(dataset_df),
     }
     full_config["generated_at_utc"] = datetime.now(timezone.utc).isoformat()
+    full_config["reproducibility"] = _build_reproducibility_info(config)
+    full_config["warmup_bars_by_split"] = {
+        split_name: {
+            "requested": split_result.warmup_bars_requested,
+            "available": split_result.warmup_bars_available,
+        }
+        for split_name, split_result in results.items()
+    }
 
     with open(exp_dir / "config.json", "w") as f:
         json.dump(full_config, f, indent=2, default=str)
@@ -149,6 +268,9 @@ def _build_summary_md(
         f"- Initial capital: {config.capital_initial}",
         f"- Trading fee: {config.trading_fee}, Slippage: {config.slippage}",
         f"- Data split: {config.data_split}",
+        f"- Evaluation mode: `{EVALUATION_MODE}` (each split starts flat with fresh "
+        "initial capital; indicator warm-up may borrow prior-split history, "
+        "trading/metrics never do)",
         "",
         "## Results by split",
         "",
@@ -156,9 +278,14 @@ def _build_summary_md(
     for split_name in ["train", "validation", "test"]:
         if split_name not in results:
             continue
-        m = results[split_name].metrics
+        split_result = results[split_name]
+        m = split_result.metrics
         lines.append(f"### {split_name}")
         lines.append("")
+        lines.append(
+            f"- Warm-up bars: {split_result.warmup_bars_available} available "
+            f"of {split_result.warmup_bars_requested} requested by the strategy"
+        )
         lines.append(f"- Total return: {m['total_return']:.4%}")
         lines.append(f"- Annualized return: {m['annualized_return']}")
         lines.append(f"- Num trades: {m['num_trades']}")
