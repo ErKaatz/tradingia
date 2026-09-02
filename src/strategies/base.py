@@ -36,6 +36,24 @@ class Strategy(ABC):
     def __init__(self, **params: Any):
         self.params = params
 
+    @property
+    def warmup_bars(self) -> int:
+        """Number of leading bars this strategy needs before its signal is
+        considered fully "warmed up" (indicators past their initialization
+        transient).
+
+        This is used by the experiment runner to borrow that many bars of
+        history from *before* a split's start (e.g. validation borrowing
+        trailing history from train) so the first bars of a split don't see
+        an artificially cold/degenerate indicator. It is bookkeeping for the
+        runner, not a lookahead mechanism: warm-up bars are always
+        chronologically before the target period, never after.
+
+        Default is 0 (no warm-up needed). Strategies with trailing windows
+        (moving averages, RSI, momentum lookback, ...) must override this.
+        """
+        return 0
+
     @abstractmethod
     def generate_signals(self, df: pd.DataFrame) -> pd.Series:
         """Given an OHLCV dataframe (columns: timestamp, open, high, low,

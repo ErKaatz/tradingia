@@ -21,6 +21,12 @@ class Momentum(Strategy):
         super().__init__(lookback=lookback)
         self.lookback = lookback
 
+    @property
+    def warmup_bars(self) -> int:
+        # Row i needs close[i - lookback], so the first `lookback` rows of
+        # any window have no valid comparison without borrowed history.
+        return self.lookback
+
     def generate_signals(self, df: pd.DataFrame) -> pd.Series:
         past_close = df["close"].shift(self.lookback)
         signal = pd.Series(FLAT, index=df.index, dtype=int)

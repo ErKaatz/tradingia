@@ -31,7 +31,7 @@ def test_signal_executes_next_bar_open_no_lookahead():
     # open, NOT bar 1's close and NOT bar 2's close.
     df = make_df(
         opens=[100, 100, 110, 130],
-        highs=[100, 100, 110, 130],
+        highs=[100, 100, 120, 130],
         lows=[100, 100, 110, 130],
         closes=[100, 100, 120, 130],
     )

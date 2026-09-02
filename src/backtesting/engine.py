@@ -23,6 +23,27 @@ exact bar and price that produced it.
    position size given by `position_size_fraction` of current equity at the
    time of entry). No shorting, no leverage, no partial scaling in/out.
 
+## Warm-up rows and `evaluation_start`
+
+`df`/`signals` passed to `run()` may include leading rows that exist only
+to let a strategy's indicators warm up (see `strategies/base.py`'s
+`warmup_bars` and `experiments/runner.py`). Pass the index where the actual
+evaluated period begins as `evaluation_start`. Rows before it:
+
+- still have signals computed on them and still affect `target_position`
+  (via the one-bar shift), so a signal born in the last warm-up bar can
+  still trigger a real entry at `evaluation_start`'s open — this is correct
+  and intended, not a bug;
+- can NEVER themselves hold an open position, be entered, or be exited: the
+  engine forces FLAT for the entire warm-up region regardless of what the
+  (shifted) signal says, so the "independent split evaluation" semantics
+  (each split starts flat with its own initial capital — see
+  experiments/runner.py) hold exactly at `evaluation_start`;
+- are excluded from the returned equity curve and trade log entirely.
+
+With the default `evaluation_start=0` there is no warm-up region and this
+reduces to the original behavior.
+
 ## What this engine deliberately does NOT do
 
 - No shorting or leverage (explicitly out of scope for this phase).
@@ -36,8 +57,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import numpy as np
 import pandas as pd
 
+from src.data.validation import validate_ohlcv
 from src.strategies.base import FLAT, LONG
 
 
@@ -115,7 +138,9 @@ class BacktestEngine:
     def __init__(self, config: BacktestConfig | None = None):
         self.config = config or BacktestConfig()
 
-    def run(self, df: pd.DataFrame, signals: pd.Series) -> BacktestResult:
+    def run(
+        self, df: pd.DataFrame, signals: pd.Series, evaluation_start: int = 0
+    ) -> BacktestResult:
         """Run the backtest.
 
         `df` must be OHLCV data sorted ascending by timestamp with columns
@@ -126,11 +151,20 @@ class BacktestEngine:
         The signal at row i is applied starting at row i+1's open — this
         shift happens inside this method, not in the strategy, so it cannot
         be skipped by accident.
+
+        `evaluation_start` marks the first row that counts as the actual
+        evaluated period; rows before it are warm-up-only context (see the
+        module docstring's "Warm-up rows and evaluation_start" section).
         """
-        if len(df) != len(signals):
-            raise ValueError("df and signals must have the same length")
+        _validate_ohlcv_for_engine(df)
+        _validate_signals(signals, expected_len=len(df))
+
         if len(df) < 2:
             raise ValueError("need at least 2 bars to run a backtest")
+        if not (0 <= evaluation_start < len(df)):
+            raise ValueError(
+                f"evaluation_start ({evaluation_start}) must be within [0, {len(df) - 1}]"
+            )
 
         cfg = self.config
         # Shift signals forward by one bar: the decision known at bar i's
@@ -155,7 +189,10 @@ class BacktestEngine:
         targets = target_position.to_numpy()
 
         for i in range(len(df)):
-            want_long = targets[i] == LONG
+            # During warm-up, the position is forced flat regardless of the
+            # (shifted) signal: warm-up bars exist only so indicators have
+            # enough trailing history by `evaluation_start`, not to trade on.
+            want_long = targets[i] == LONG and i >= evaluation_start
 
             # Enter at this bar's open if we're flat but should be long.
             if position_state == FLAT and want_long:
@@ -248,11 +285,64 @@ class BacktestEngine:
             equity_records[-1]["position"] = FLAT
 
         equity_curve = pd.DataFrame(equity_records)
+        # Warm-up bars are context for indicators only; they never held a
+        # position (enforced above) and must not appear in the reported
+        # equity curve, exposure, or drawdown for this split.
+        equity_curve = equity_curve.iloc[evaluation_start:].reset_index(drop=True)
         final_equity = equity_curve["equity"].iloc[-1]
+
+        # By construction no trade can open before evaluation_start (want_long
+        # is forced False there), so every trade's entry_time already falls
+        # within the evaluated period — nothing to filter here, but assert it
+        # to fail loudly if that invariant is ever broken by a future change.
+        if trades:
+            eval_start_time = df["timestamp"].iloc[evaluation_start]
+            assert all(t.entry_time >= eval_start_time for t in trades), (
+                "internal invariant violated: a trade opened during warm-up"
+            )
 
         return BacktestResult(
             equity_curve=equity_curve,
             trades=trades,
             initial_capital=cfg.initial_capital,
             final_equity=final_equity,
+        )
+
+
+def _validate_ohlcv_for_engine(df: pd.DataFrame) -> None:
+    """Structural OHLCV validation the engine always performs, regardless of
+    caller. Time-gap policy is deliberately NOT enforced here (the engine
+    doesn't know the intended timeframe or whether gaps are acceptable for
+    this dataset) — that is `src/data/validation.py`'s `validate_ohlcv`
+    with an explicit `timeframe`/`allow_gaps`, run upstream by the
+    experiment runner. This call only catches structurally impossible data
+    (NaNs, non-monotonic timestamps, negative prices, high < low, ...) that
+    would silently corrupt any backtest.
+    """
+    result = validate_ohlcv(df, timeframe=None, allow_gaps=True)
+    result.raise_if_invalid()
+
+
+def _validate_signals(signals: pd.Series, expected_len: int) -> None:
+    if len(signals) != expected_len:
+        raise ValueError(
+            f"signals length ({len(signals)}) does not match data length ({expected_len})"
+        )
+    if signals.isna().any():
+        n_nan = int(signals.isna().sum())
+        raise ValueError(f"signals contain {n_nan} NaN value(s); expected only FLAT/LONG")
+
+    values = signals.to_numpy()
+    if not np.issubdtype(values.dtype, np.integer):
+        # Allow float series that hold only whole FLAT/LONG values (e.g.
+        # produced by arithmetic on an int series), but reject anything with
+        # a fractional part — that's not a valid position state.
+        if not np.all(np.equal(np.mod(values, 1), 0)):
+            raise ValueError("signals must contain only integer FLAT/LONG values, found fractional values")
+
+    allowed = {FLAT, LONG}
+    invalid_values = set(int(v) for v in values) - allowed
+    if invalid_values:
+        raise ValueError(
+            f"signals contain values outside {{FLAT={FLAT}, LONG={LONG}}}: {sorted(invalid_values)}"
         )

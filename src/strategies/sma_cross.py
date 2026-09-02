@@ -24,6 +24,12 @@ class SmaCross(Strategy):
         self.fast = fast
         self.slow = slow
 
+    @property
+    def warmup_bars(self) -> int:
+        # The slow SMA is the binding constraint: it needs `slow` trailing
+        # closes (including the current bar) before its first non-NaN value.
+        return self.slow - 1
+
     def generate_signals(self, df: pd.DataFrame) -> pd.Series:
         fast_sma = df["close"].rolling(window=self.fast, min_periods=self.fast).mean()
         slow_sma = df["close"].rolling(window=self.slow, min_periods=self.slow).mean()

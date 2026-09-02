@@ -43,6 +43,17 @@ class MeanReversion(Strategy):
         self.oversold = oversold
         self.exit_rsi = exit_rsi
 
+    @property
+    def warmup_bars(self) -> int:
+        # `_rsi` requires `rsi_period` bars before avg_gain/avg_loss even
+        # produce a first value (min_periods=rsi_period on the ewm mean).
+        # Beyond that, Wilder's EWM smoothing (alpha=1/period) has a long
+        # tail: it never fully "forgets" the arbitrary seed, but by
+        # convention ~4x the period is enough for the seed's influence to
+        # become negligible for signal purposes. This is a documented
+        # approximation, not an exact convergence bound.
+        return self.rsi_period * 4
+
     def generate_signals(self, df: pd.DataFrame) -> pd.Series:
         rsi = _rsi(df["close"], self.rsi_period)
 
