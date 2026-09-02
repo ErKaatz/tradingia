@@ -6,12 +6,14 @@ from typing import Any
 
 from src.strategies.base import Strategy
 from src.strategies.buy_and_hold import BuyAndHold
+from src.strategies.breakout import Breakout
 from src.strategies.mean_reversion import MeanReversion
 from src.strategies.momentum import Momentum
 from src.strategies.sma_cross import SmaCross
 
 STRATEGY_REGISTRY: dict[str, type[Strategy]] = {
     "buy_and_hold": BuyAndHold,
+    "breakout": Breakout,
     "sma_cross": SmaCross,
     "momentum": Momentum,
     "mean_reversion": MeanReversion,
