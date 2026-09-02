@@ -1,0 +1,22 @@
+strategy: momentum
+
+symbol: BTCUSDT
+timeframe: 1h
+
+start: "2023-01-01"
+end: "2024-01-01"
+
+capital:
+  initial: 10000
+
+fees:
+  trading_fee: 0.001
+  slippage: 0.0002
+
+strategy_params:
+  lookback: 24
+
+data_split:
+  train: 0.6
+  validation: 0.2
+  test: 0.2
