@@ -25,6 +25,7 @@ from src.research.phase25 import run_phase25
 from src.research.holdout_eval import run_final_holdout
 from src.research.diagnostics import run_holdout_diagnostics
 from src.research.post_holdout_family_comparison import run_post_holdout_family_comparison
+from src.research.regime_study import run_regime_study
 from src.forward.runner import preregister_forward, run_forward_eval
 
 
@@ -122,6 +123,11 @@ def cmd_post_holdout_family_comparison(args: argparse.Namespace) -> None:
     print(f"POST-HOC / HOLDOUT ALREADY CONSUMED family comparison saved to {out}")
 
 
+def cmd_regime_study(args: argparse.Namespace) -> None:
+    out = run_regime_study()
+    print(f"POST-HOC REGIME RESEARCH (Phase 3B) saved to {out}")
+
+
 def cmd_preregister_forward(args: argparse.Namespace) -> None:
     out = preregister_forward(args.config_path)
     print(f"Forward hypotheses preregistered at {out}")
@@ -173,6 +179,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_phfc.add_argument("config_path", help="Path to post-holdout family comparison YAML config")
     p_phfc.set_defaults(func=cmd_post_holdout_family_comparison)
+
+    p_regime = subparsers.add_parser(
+        "regime-study",
+        help="POST-HOC REGIME RESEARCH (Phase 3B): causal regime features vs the consumed 2025-2026 period",
+    )
+    p_regime.set_defaults(func=cmd_regime_study)
 
     p_pre = subparsers.add_parser("preregister-forward", help="Freeze post-holdout forward hypotheses before new data")
     p_pre.add_argument("config_path", help="Path to forward validation YAML config")

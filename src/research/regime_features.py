@@ -302,8 +302,12 @@ def feature_values_at(features: pd.DataFrame, timestamps: pd.Series) -> pd.DataF
     never after it -- this is the causal-lookup analog of the trailing
     features themselves.
     """
-    lookup = features.sort_values("timestamp").reset_index(drop=True)
-    queries = pd.DataFrame({"timestamp": pd.to_datetime(timestamps, utc=True)})
+    lookup = features.copy()
+    lookup["timestamp"] = pd.to_datetime(lookup["timestamp"], utc=True).astype("datetime64[ns, UTC]")
+    lookup = lookup.sort_values("timestamp").reset_index(drop=True)
+    queries = pd.DataFrame(
+        {"timestamp": pd.to_datetime(timestamps, utc=True).astype("datetime64[ns, UTC]")}
+    )
     queries_sorted = queries.sort_values("timestamp")
     matched = pd.merge_asof(
         queries_sorted,
