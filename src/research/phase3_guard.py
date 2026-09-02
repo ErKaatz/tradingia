@@ -24,6 +24,7 @@ PHASE3_GUARDED_FILES = [
     Path("src/forward/runner.py"),
     Path("src/strategies/breakout_forward.py"),
     Path("configs/forward_validation.yaml"),
+    Path("tests/test_forward_phase3.py"),
 ]
 
 # The exact frozen values Phase 3 committed to. Checked independently of
