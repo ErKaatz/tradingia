@@ -159,3 +159,15 @@ Once the 2025+ final holdout has been opened, it is consumed forever for the tes
 - The 24h confirmation and volatility-gate ideas were motivated by post-holdout diagnostics and are therefore **post-hoc hypotheses**, not validated improvements.
 - No parameter grid, threshold search, or retroactive selection is allowed on 2025-2026 for these hypotheses.
 - Success/failure of Phase 3 must be judged only from forward/paper observations dated 2026-09-03 or later.
+
+## POST-HOC / HOLDOUT ALREADY CONSUMED — family comparison
+
+Only breakout was carried to the final holdout, because it was the most promising family during Phase 2/2.5 research. `src/research/post_holdout_family_comparison.py` retrospectively evaluates the OTHER Phase-2-registered families (sma_cross, momentum, mean_reversion) against the same already-consumed 2025-01-01 to 2026-09-02 period, to understand whether the regime shift that hurt breakout was breakout-specific or broader.
+
+- This is **not** a new holdout and **not** out-of-sample evidence. Every output is labeled `POST-HOC / HOLDOUT ALREADY CONSUMED`.
+- Only configurations already registered in Phase 2 research are evaluated (read verbatim from `research/parameter_studies/<family>.csv`); no new SMA pair, momentum lookback, or RSI threshold may be introduced under this label.
+- Breakout is not re-run: its recent-period numbers are read from the already-consumed `research/final_holdout/` artifacts, never from a fresh backtest.
+- The recent window is hardcoded to exactly `[2025-01-01, 2026-09-02]`, matching the final holdout; the module refuses to run if a config tries to change it.
+- Allowed classification labels are descriptive only: `RECENTLY RESILIENT`, `RECENTLY DEGRADED`, `CONSISTENTLY WEAK`, `REGIME-SENSITIVE`, `INCONCLUSIVE`. Never `PROVEN`, `PROFITABLE`, or `OUT-OF-SAMPLE WINNER`.
+- Any hypothesis generated from this comparison (see `research/post_holdout_family_comparison/HYPOTHESES_POST_HOC.md`) is post-hoc by construction and may only earn evidence from genuinely future data, following the same preregister-before-look discipline as Phase 3. It does not amend Phase 3's existing preregistration.
+- Phase 3's forward preregistration (`PHASE3_FORWARD.md`, `src/forward/`, `src/strategies/breakout_forward.py`) is a separate, frozen surface and is never read, imported, or modified by this comparison.

@@ -284,3 +284,13 @@ python -m src.cli research25 configs/research_phase25.yaml
 ```
 
 It evaluates exactly 24 pre-registered breakout variants and writes plateau, cost-stress, fixed walk-forward, trade-regime and Monte Carlo reports to `research/phase25/`. The 2025+ final holdout remains blocked by code.
+
+## POST-HOC / HOLDOUT ALREADY CONSUMED — family comparison
+
+Only breakout was carried to the final holdout. This retrospective pass answers: what would the OTHER Phase-2-registered families (sma_cross, momentum, mean_reversion) have done over the same already-consumed 2025-01-01 to 2026-09-02 period?
+
+```bash
+python -m src.cli post-holdout-family-comparison configs/post_holdout_family_comparison.yaml
+```
+
+This is explicitly **not** a new holdout and **not** out-of-sample evidence — every output is labeled `POST-HOC / HOLDOUT ALREADY CONSUMED`. It only re-evaluates configurations Phase 2 already registered (read from `research/parameter_studies/`, never regenerated from a parameter list) and reuses breakout's already-consumed final-holdout numbers verbatim rather than re-running it. Reports (`research_vs_recent.csv`, `family_summary.csv`, `yearly_2025_2026.csv`, `ranking_stability.json`, `buy_and_hold_comparison.json`, `HYPOTHESES_POST_HOC.md`) are written to `research/post_holdout_family_comparison/`. See `RESEARCH_RULES.md`'s corresponding section for the full constraints.
