@@ -294,3 +294,13 @@ python -m src.cli post-holdout-family-comparison configs/post_holdout_family_com
 ```
 
 This is explicitly **not** a new holdout and **not** out-of-sample evidence — every output is labeled `POST-HOC / HOLDOUT ALREADY CONSUMED`. It only re-evaluates configurations Phase 2 already registered (read from `research/parameter_studies/`, never regenerated from a parameter list) and reuses breakout's already-consumed final-holdout numbers verbatim rather than re-running it. Reports (`research_vs_recent.csv`, `family_summary.csv`, `yearly_2025_2026.csv`, `ranking_stability.json`, `buy_and_hold_comparison.json`, `HYPOTHESES_POST_HOC.md`) are written to `research/post_holdout_family_comparison/`. See `RESEARCH_RULES.md`'s corresponding section for the full constraints.
+
+## Phase 3B — POST-HOC regime research
+
+Investigates whether causal, trailing-only regime features (realized volatility, ATR, ADX, SMA slope, autocorrelation, Kaufman efficiency ratio, and others — see `src/research/regime_features.py`) explain when NOT to trade a trend/breakout strategy. No new strategy parameters, no threshold grid search, no machine learning.
+
+```bash
+python -m src.cli regime-study
+```
+
+Every output is labeled `POST-HOC REGIME RESEARCH / NOT OUT-OF-SAMPLE VALIDATION`. The command calls `assert_phase3_intact()` before and after running and aborts if Phase 3's frozen forward preregistration was ever modified. Reports (`feature_distributions.csv`, `entry_feature_analysis.csv`, `winner_loser_separation.csv`, `yearly_analysis.csv`, `hypotheses.md`, `posthoc_simulations/`, `metadata.json`, `PHASE3_FINGERPRINT.json`) are written to `research/regime_study/`. See its `README.md` for headline findings and `RESEARCH_RULES.md`'s corresponding section for the full constraints.
