@@ -1,8 +1,8 @@
-"""POST-HOC SHORT-HORIZON RESEARCH — time-of-day descriptive analysis.
+"""Time-of-day descriptive analysis.
 
-Task 10: purely descriptive. Reports mean return, volatility, volume, and
-a simple continuation/reversion rate by UTC hour-of-day. This module does
-NOT produce a Strategy or any tradeable signal -- it exists only to detect
+Purely descriptive. Reports mean return, volatility, volume, and a simple
+continuation/reversion rate by UTC hour-of-day. This module does NOT
+produce a Strategy or any tradeable signal -- it exists only to detect
 whether intraday structure is visible enough to justify a FUTURE
 hypothesis (which would then need its own preregistration and forward
 test, exactly like everything else in this project).

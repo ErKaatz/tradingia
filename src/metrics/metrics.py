@@ -19,23 +19,13 @@ import pandas as pd
 
 from src.backtesting.engine import BacktestResult
 
-# Bars-per-year for a market that trades continuously (24/7/365), as spot
-# crypto does. This table is intentionally NOT a general-purpose calendar:
-# FX trades roughly 252 days/year with real weekend/holiday gaps, so an FX
-# caller must not rely on this table -- it should pass its own correct
-# `periods_per_year` explicitly to `volatility`/`sharpe_ratio`/`sortino_ratio`
-# rather than have this module guess one. This table remains the default
-# only for historical crypto timeframes.
-TRADING_PERIODS_PER_YEAR = {
-    "1m": 365 * 24 * 60,
-    "5m": 365 * 24 * 12,
-    "15m": 365 * 24 * 4,
-    "1h": 365 * 24,
-    "4h": 365 * 6,
-    "1d": 365,
-}
-
-
+# There is no market-agnostic bars-per-year table here on purpose: how many
+# periods a year contains depends on the market's actual trading calendar
+# (continuous for spot crypto, ~252 trading days with real session gaps for
+# FX, etc.), and guessing one from a bar-duration string alone silently bakes
+# in whichever market this module was last written for. Every caller that
+# needs annualized volatility/Sharpe/Sortino must pass `periods_per_year`
+# explicitly, computed from its own market's actual calendar.
 SECONDS_PER_YEAR = 365 * 24 * 3600
 
 
@@ -63,14 +53,12 @@ def elapsed_years(result: BacktestResult) -> float | None:
     return seconds / SECONDS_PER_YEAR
 
 
-def annualized_return(result: BacktestResult, timeframe: str | None = None) -> float | None:
+def annualized_return(result: BacktestResult) -> float | None:
     """Compound annual growth rate over the evaluated period.
 
     Computed from real elapsed wall-clock time (see `elapsed_years`), not
-    from a bar count divided by a nominal periods-per-year for `timeframe`.
-    `timeframe` is accepted for API symmetry with the other metrics but is
-    no longer used in this computation; it may be removed once callers stop
-    passing it.
+    from a bar count divided by a nominal periods-per-year -- this is
+    market-agnostic and needs no `periods_per_year` input.
     """
     years = elapsed_years(result)
     if years is None:
@@ -90,39 +78,31 @@ def bar_returns(result: BacktestResult) -> pd.Series:
 
 def volatility(
     result: BacktestResult,
-    timeframe: str,
+    periods_per_year: float,
     annualize: bool = True,
-    periods_per_year: float | None = None,
 ) -> float | None:
-    """`periods_per_year` overrides the `TRADING_PERIODS_PER_YEAR` lookup for
-    `timeframe` -- required for any non-24/7 market (e.g. FX), where the
-    crypto-shaped default table does not apply."""
+    """`periods_per_year` must be the caller's own market-appropriate bars-
+    per-year figure (e.g. computed from that market's real trading
+    calendar) -- this module does not guess one from a timeframe string."""
     returns = bar_returns(result)
     if len(returns) < 2:
         return None
     vol = returns.std()
     if annualize:
-        resolved = periods_per_year if periods_per_year is not None else TRADING_PERIODS_PER_YEAR.get(timeframe)
-        if resolved is None:
-            return None
-        vol *= math.sqrt(resolved)
+        vol *= math.sqrt(periods_per_year)
     return float(vol)
 
 
 def sharpe_ratio(
     result: BacktestResult,
-    timeframe: str,
+    periods_per_year: float,
     risk_free_rate: float = 0.0,
-    periods_per_year: float | None = None,
 ) -> float | None:
-    """`periods_per_year` overrides the `TRADING_PERIODS_PER_YEAR` lookup for
-    `timeframe` -- required for any non-24/7 market (e.g. FX), where the
-    crypto-shaped default table does not apply."""
+    """`periods_per_year` must be the caller's own market-appropriate bars-
+    per-year figure (e.g. computed from that market's real trading
+    calendar) -- this module does not guess one from a timeframe string."""
     returns = bar_returns(result)
     if len(returns) < 2:
-        return None
-    periods_per_year = periods_per_year if periods_per_year is not None else TRADING_PERIODS_PER_YEAR.get(timeframe)
-    if periods_per_year is None:
         return None
     period_rf = risk_free_rate / periods_per_year
     excess = returns - period_rf
@@ -134,9 +114,8 @@ def sharpe_ratio(
 
 def sortino_ratio(
     result: BacktestResult,
-    timeframe: str,
+    periods_per_year: float,
     minimum_acceptable_return: float = 0.0,
-    periods_per_year: float | None = None,
 ) -> float | None:
     """Sortino ratio using the standard definition:
 
@@ -158,15 +137,12 @@ def sortino_ratio(
     by sqrt(periods_per_year) / periods_per_year in the standard way, so the
     ratio is on the same annualized scale as `sharpe_ratio`.
 
-    `periods_per_year` overrides the `TRADING_PERIODS_PER_YEAR` lookup for
-    `timeframe` -- required for any non-24/7 market (e.g. FX), where the
-    crypto-shaped default table does not apply.
+    `periods_per_year` must be the caller's own market-appropriate bars-
+    per-year figure (e.g. computed from that market's real trading
+    calendar) -- this module does not guess one from a timeframe string.
     """
     returns = bar_returns(result)
     if len(returns) < 2:
-        return None
-    periods_per_year = periods_per_year if periods_per_year is not None else TRADING_PERIODS_PER_YEAR.get(timeframe)
-    if periods_per_year is None:
         return None
     mar_period = minimum_acceptable_return / periods_per_year
     excess = returns - mar_period
@@ -265,24 +241,22 @@ def trade_stats(result: BacktestResult) -> TradeStats:
     )
 
 
-def build_metrics_report(
-    result: BacktestResult, timeframe: str, periods_per_year: float | None = None
-) -> dict[str, Any]:
+def build_metrics_report(result: BacktestResult, periods_per_year: float) -> dict[str, Any]:
     """Assemble the full metrics dict saved into metrics.json for an
     experiment. Any metric that could not be computed meaningfully is
     reported as null with an accompanying note.
 
-    `periods_per_year` overrides the `TRADING_PERIODS_PER_YEAR` lookup for
-    `timeframe` -- required for any non-24/7 market (e.g. FX), where the
-    crypto-shaped default table does not apply.
+    `periods_per_year` must be the caller's own market-appropriate bars-
+    per-year figure (e.g. computed from that market's real trading
+    calendar) -- this module does not guess one from a timeframe string.
     """
     dd = max_drawdown(result)
     stats = trade_stats(result)
 
-    ann_return = annualized_return(result, timeframe)
-    sharpe = sharpe_ratio(result, timeframe, periods_per_year=periods_per_year)
-    sortino = sortino_ratio(result, timeframe, periods_per_year=periods_per_year)
-    vol = volatility(result, timeframe, periods_per_year=periods_per_year)
+    ann_return = annualized_return(result)
+    sharpe = sharpe_ratio(result, periods_per_year)
+    sortino = sortino_ratio(result, periods_per_year)
+    vol = volatility(result, periods_per_year)
 
     notes = []
     if ann_return is None:

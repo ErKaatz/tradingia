@@ -1,127 +1,137 @@
-# Laboratorio de investigación y backtesting de estrategias de trading
+# TradingIA
 
-Infraestructura para investigar estrategias de trading cuantitativo de forma
-reproducible, auditable y sin autoengañarse con backtests irreales.
+TradingIA is FX-first / MT5-first. It investigates and executes trading
+systems reproducibly, auditably, and without self-deceiving backtests.
 
-**Estado actual: Fase 1.5 — endurecimiento metodológico.** Ninguna de las
-estrategias incluidas se declara rentable. El objetivo de esta fase es
-demostrar que el motor de backtesting es correcto y auditable, no encontrar
-una estrategia ganadora.
+**No live trading and no real money anywhere in this codebase.**
+`configs/real_money_policy.yaml` sets `live.live_trading_enabled: false`;
+see `LIVE_TRADING_RULES.md`.
 
-No hay conexión a dinero real ni ejecución de órdenes reales en ningún punto
-de este código.
+## History
 
-## Arquitectura
+TradingIA's first research track (Phase 2 through Phase 4B) was a
+spot-crypto study on BTCUSDT. No profitable, validated crypto strategy
+was found; the project moved to FX/MT5 research as a result. That full
+history — what was tried, what failed, and why — is preserved at
+[`docs/history/crypto/`](docs/history/crypto/README.md), and the last
+complete crypto-era executable state (code, configs, and tests exactly
+as they ran) is recoverable with:
+
+```bash
+git checkout crypto-research-final
+```
+
+## Architecture
 
 ```
 src/
-  data/          # Fuente de datos encapsulada (provider), cache local, split train/val/test
-  strategies/    # Estrategias: solo deciden posición deseada (FLAT/LONG) por vela
-  backtesting/   # Motor: aplica señales con ejecución en la siguiente vela, fees, slippage
-  metrics/       # Funciones puras de métricas de performance
-  experiments/   # Orquestación: config -> datos -> split -> backtest -> resultados persistidos
-  execution/     # Reservado para paper trading futuro (vacío por ahora)
-  cli/           # Interfaz de línea de comandos
-configs/         # Configs YAML de experimentos
-data/raw/        # Cache local de OHLCV descargado (no versionado en git)
-results/         # Carpetas de experimentos generadas (no versionado en git)
-tests/           # Tests unitarios con datasets sintéticos de resultado conocido
+  data/          # DataProvider interface, local cache/loader, chronological splitter, OHLCV validation
+  strategies/    # Reference strategy implementations (Strategy ABC: FLAT/LONG signals from OHLC)
+  backtesting/   # BacktestEngine: bar-by-bar simulation, next-bar execution, fees/slippage
+  metrics/       # Pure performance-metric functions (Sharpe, Sortino, drawdown, trade stats, ...)
+  research/      # Generic, market-agnostic research primitives (see below)
+  execution/     # MT5 execution: policy, safe execution, quote freshness, remote client
+  cli/           # Command-line interface (compare, mt5-remote)
+mt5_bridge/      # FastAPI bridge deployed on the Windows VM running MetaTrader5
+configs/         # YAML configs (execution policy)
+docs/            # Active + historical documentation
+tests/           # Unit tests
 ```
 
-### Principio de diseño: el motor debe ser legible, no solo rápido
+`src/experiments/` (the old crypto-era experiment runner/CLI `backtest`
+command) and Phase 2/2.5/3/3B/4A/4B's research modules were removed from
+the active tree once their full state was captured under the
+`crypto-research-final` Git tag — see
+[`docs/history/crypto/README.md`](docs/history/crypto/README.md) for
+what was removed and why.
 
-`src/backtesting/engine.py` simula vela a vela con un bucle explícito, no
-con una vectorización opaca. Es deliberadamente lento comparado con lo que
-se podría lograr vectorizando todo el backtest, pero cada trade puede
-trazarse exactamente a la vela y precio que lo produjo. Correctitud y
-auditabilidad priman sobre velocidad en esta fase.
+## What is currently implemented
 
-### Regla anti-lookahead central
+- **Generic data/research infrastructure**: `DataProvider` interface,
+  local OHLCV cache/loader with dataset-content hashing
+  (`src/data/loader.py`), chronological train/validation/test
+  splitting with warm-up handling (`src/data/splitter.py`), OHLCV
+  structural validation (`src/data/validation.py`).
+- **`BacktestEngine`** (`src/backtesting/engine.py`): bar-by-bar
+  simulation with anti-lookahead enforcement (a strategy's signal at
+  bar `i` executes at bar `i+1`'s open), FLAT/LONG only, percentage
+  fee/slippage, cash-fraction position sizing. It currently has no
+  active orchestrator wired to it (the old crypto experiment runner was
+  removed); it is kept because `src/metrics/metrics.py` depends on its
+  `BacktestResult`/`Trade` data shape, and because a future
+  `FXBacktestEngine` is expected to reuse its anti-lookahead/warm-up
+  design patterns (by copying, not by inheriting from it).
+- **Reference strategies** (`src/strategies/`): `Breakout`,
+  `BuyAndHold`, `MeanReversion`, `Momentum`, `SmaCross` — small, OHLC-only,
+  no exchange/symbol coupling. Long/flat only; no short-selling
+  interface exists yet.
+- **Generic research primitives** (`src/research/`): chronological
+  holdout locking (`holdout.py`), walk-forward window generation
+  (`walk_forward.py`), IID and moving-block trade-return bootstrap
+  (`monte_carlo.py`, `block_bootstrap.py`), cost-stress scenarios
+  (`stress.py`), a causal realized-volatility entry filter
+  (`volatility_filter.py`), a parameter-grid generator
+  (`parameter_study.py`), and time-of-day descriptive analysis
+  (`time_of_day.py`). None of these are wired into an active CLI
+  command yet; they exist as building blocks for future research
+  phases.
+- **MT5 execution** (`src/execution/`, `mt5_bridge/`): a Linux client
+  talking over HTTP to a small FastAPI bridge on a Windows VM running
+  the `MetaTrader5` Python package, which drives an HFM Demo MT5
+  account. Includes fail-closed DEMO-only execution policy, safe
+  order-placement/closing, quote-freshness validation (both client-side
+  and independently bridge-side), broker-server-clock auto-calibration,
+  idempotency, reconciliation, a kill switch, and an append-only
+  execution journal. See `FX_PHASE0_STATUS.md` and
+  `LIVE_TRADING_RULES.md`.
+- **Research methodology rules** (`RESEARCH_RULES.md`): market-agnostic
+  rules on causality, train/validation/test discipline, preregistration,
+  costs, multiple testing, and reproducibility.
 
-Una estrategia decide su posición deseada para la vela `i` usando solo datos
-de `df.iloc[:i+1]` (ver `src/strategies/base.py`). El motor de backtesting
-**nunca** ejecuta al precio que generó la señal: desplaza la señal una vela
-hacia adelante (`shift(1)`) y ejecuta al **open de la vela siguiente**. Esto
-ocurre dentro del motor, no en cada estrategia, para que no pueda olvidarse
-al añadir una estrategia nueva.
+## What is not implemented yet
 
-Esto se verificó manualmente comparando trades reales contra los datos
-OHLCV crudos (ver sección "Resultados y verificación manual" abajo).
+- FX historical data ingestion (no `MT5HistoricalProvider`).
+- Any FX-aware backtest engine (spread/bid-ask, lot sizing, contract
+  size, pip value, swap/rollover, trading sessions, weekend/holiday gap
+  handling).
+- Short-selling in the `Strategy` interface.
+- Any FX strategy.
+- Any automatic/scheduled DEMO or LIVE order placement.
 
-### Modelo de ejecución y supuestos documentados
+These are explicitly deferred to a future FX research phase.
 
-- Solo dos estados: FLAT (sin posición) y LONG (invertido con
-  `position_size_fraction` del equity disponible en el momento de entrada).
-  No hay short ni leverage en esta fase.
-- Slippage: costo fraccional fijo aplicado en contra del trader — compras al
-  `open * (1 + slippage)`, ventas al `open * (1 - slippage)`. Es una
-  simplificación (el slippage real depende del tamaño de la orden y la
-  profundidad del libro), pero es determinista y documentada.
-- Fees: porcentaje del valor nocional, cobrado en la entrada y en la salida.
-- No hay fills intrabar: una señal de salida no obtiene un precio mejor
-  mirando el high/low de la vela.
-- Si al final del dataset queda una posición abierta, se fuerza su cierre al
-  `close` de la última vela, para que el equity final esté completamente
-  realizado y sea auditable. Esto es una convención de fin de backtest, no
-  una regla que aplique durante el resto de la simulación.
+## Core design principles (apply to any future backtest engine or research code)
 
-### Warm-up de indicadores entre splits
+### Anti-lookahead
 
-Cada estrategia declara `warmup_bars` (número de velas trailing que necesita
-antes de que su indicador deje de ser degenerado/NaN): SMA cross usa
-`slow - 1`, momentum usa `lookback`, RSI mean-reversion usa `rsi_period * 4`
-(margen documentado para que la suavización EWM de Wilder converja).
+A strategy decides its desired position for bar `i` using only
+`df.iloc[:i+1]` (see `src/strategies/base.py`). `BacktestEngine` never
+executes at the price that generated the signal: it shifts the signal
+one bar forward (`shift(1)`) and executes at the **next bar's open**.
+This happens inside the engine, not in each strategy, so it cannot be
+forgotten when adding a new strategy.
 
-El runner (`src/experiments/runner.py`) usa `slice_with_warmup` para que
-`validation` pueda tomar prestadas hasta `warmup_bars` velas
-**cronológicamente anteriores** de `train`, y `test` de `train+validation`
-— nunca de datos posteriores al propio split. Esas velas de warm-up sirven
-solo para calentar el indicador: el motor de backtest tiene prohibido abrir,
-mantener o cerrar una posición durante ellas (`evaluation_start` en
-`BacktestEngine.run`), y quedan excluidas del equity curve y del historial
-de trades de ese split. `train` no tiene split anterior del que tomar
-contexto, así que sus propias primeras `warmup_bars` velas arrancan en frío,
-igual que en la Fase 1 — es inherente a ser el primer período del dataset.
+### Warm-up bars are not data leakage
 
-Se verificó explícitamente (`tests/test_warmup.py`) que la señal en las
-primeras velas de `validation`/`test` coincide exactamente con la que
-produciría ejecutar la estrategia sobre el historial continuo completo
-hasta ese instante — nunca con una señal artificialmente fría, y nunca con
-una señal influida por datos posteriores al punto evaluado.
+A strategy declares `warmup_bars` (leading bars of trailing history it
+needs before its indicator stops being degenerate/NaN). `validation`
+and `test` splits may borrow up to `warmup_bars` chronologically
+**earlier** bars purely to warm up indicators — never to open, hold, or
+close a position, and never counted in that split's equity curve or
+trade history (`evaluation_start` in `BacktestEngine.run`). See
+`tests/test_warmup.py`.
 
-### Modo de evaluación de splits: `independent_split_evaluation`
+### Metrics require an explicit annualization factor
 
-Es el único modo implementado. Cada split arranca FLAT con el capital
-inicial completo configurado, independientemente de lo que la estrategia
-"venía haciendo" justo antes — el warm-up afecta a la señal, nunca al
-estado de portfolio. Cada split fuerza cierre de posición en su propia
-última vela. Esto responde a "¿cómo se comporta esta estrategia de forma
-independiente en cada uno de estos tres períodos?", no a "¿qué habría hecho
-una única ejecución continua de principio a fin?".
+`src/metrics/metrics.py` has no built-in trading calendar: `volatility`,
+`sharpe_ratio`, `sortino_ratio`, and `build_metrics_report` all require
+an explicit `periods_per_year` argument from the caller. This is
+deliberate — a spot-crypto market trades continuously (24/7/365) while
+FX trades roughly 252 days/year with real session gaps, and guessing one
+convention from a timeframe string would silently bake in the wrong
+market's assumption for whichever caller didn't expect it.
 
-Ese segundo enfoque (`continuous_walk_forward`: capital y posición
-continúan cronológicamente de un split al siguiente) es un modo futuro,
-explícitamente no implementado todavía, documentado en
-`src/experiments/runner.py` para que no se confunda accidentalmente con el
-modo actual cuando se implemente.
-
-### Validación de datos y de señales
-
-Antes de cada backtest, `src/data/validation.py` valida el OHLCV completo:
-columnas requeridas, ausencia de NaN, timestamps estrictamente crecientes
-(detecta duplicados), precios positivos, volumen no negativo, y relaciones
-high/low válidas respecto a open/close. También detecta huecos temporales
-relativos al timeframe declarado; por defecto (`allow_data_gaps: false` en
-el config) cualquier hueco detectado hace fallar la validación, porque para
-BTC/USDT spot 1h se espera continuidad. Un dataset o mercado que
-legítimamente tenga huecos puede declarar `allow_data_gaps: true`
-explícitamente en su config.
-
-`BacktestEngine.run` valida además que las señales recibidas sean
-exclusivamente FLAT/LONG, sin NaN, y de longitud compatible con los datos —
-antes de simular nada.
-
-## Instalación
+## Installation
 
 ```bash
 python3 -m venv .venv
@@ -129,178 +139,44 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Descarga de datos
+## MT5 execution CLI
 
-Los datos se descargan de la API pública de Binance (no requiere API key,
-solo lee datos de mercado, nunca coloca órdenes) y se cachean localmente en
-`data/raw/<SYMBOL>_<timeframe>.parquet`.
-
-```bash
-python -m src.cli download-data --symbol BTCUSDT --timeframe 1h --start 2023-01-01 --end 2024-01-01
-```
-
-La fuente de datos está encapsulada detrás de la interfaz `DataProvider`
-(`src/data/providers.py`). Para usar otra fuente, implementa esa interfaz;
-el resto del sistema (loader, splitter, engine, CLI) no cambia.
-
-## Ejecutar un backtest
+See [`docs/CLI_SETUP.md`](docs/CLI_SETUP.md) for the `tia` wrapper setup,
+and `FX_PHASE0_STATUS.md` for current MT5 execution status. Quick
+reference of the read-only/DEMO-only commands:
 
 ```bash
-python -m src.cli backtest configs/sma_cross.yaml
+tia mt5 status
+tia mt5 preflight EURUSD
+tia mt5 positions
+tia mt5 time-diagnostics EURUSD
+tia mt5 journal
+tia mt5 demo-open EURUSD buy --confirm-demo-order
+tia mt5 demo-close <position_id>
 ```
 
-Esto:
-
-1. Carga los datos cacheados para el símbolo/timeframe del config.
-2. Los divide cronológicamente en train/validation/test (nunca aleatorio).
-3. Ejecuta la estrategia con los mismos parámetros fijos en cada partición.
-4. Calcula métricas por partición.
-5. Guarda todo en `results/<fecha>_<num>_<estrategia>/`.
-
-Cada carpeta de experimento contiene:
-
-```
-config.json           # config completa + hash del dataset + período de datos
-metrics.json           # métricas de las 3 particiones juntas
-summary.md             # resumen legible
-train/  validation/  test/
-  trades.csv            # historial de trades
-  equity.csv            # equity curve por vela
-  metrics.json           # métricas de esa partición
-```
-
-## Comparar experimentos
+## Comparing experiment result folders
 
 ```bash
-python -m src.cli compare results/2026-09-02_001_buy_and_hold results/2026-09-02_002_sma_cross
+python -m src.cli compare results/<experiment_a> results/<experiment_b>
 ```
 
-Imprime una tabla comparando retorno, número de trades, win rate, profit
-factor, drawdown y Sharpe por experimento y partición.
+Reads `config.json`/`metrics.json` from each folder and prints a
+comparison table. This command has no dependency on any specific
+research runner — it works with any result folder that writes those two
+files in the expected shape.
 
-## Crear una estrategia nueva
+## Creating a new reference strategy
 
-1. Crea un archivo en `src/strategies/` con una clase que herede de
-   `Strategy` (`src/strategies/base.py`) e implemente
-   `generate_signals(df) -> pd.Series` devolviendo `FLAT` (0) o `LONG` (1)
-   por fila.
-2. **La fila `i` solo puede depender de `df.iloc[:i+1]`.** No uses
-   `.shift(-1)`, ventanas hacia adelante, ni nada que mire el futuro.
-3. Si tu indicador necesita historial trailing (media móvil, RSI, lookback,
-   ...), sobreescribe la property `warmup_bars` con el número de velas
-   necesario. Si no lo haces, el valor por defecto es 0 y tu estrategia
-   arrancará en frío al inicio de cada split — puede seguir siendo correcto
-   (no hay lookahead), pero pierdes el contexto de warm-up entre splits.
-4. Regístrala en `src/strategies/registry.py`.
-5. Añade tests en `tests/test_strategies.py` (incluyendo el test de
-   invariancia por truncamiento) y, si declaras `warmup_bars > 0`, añade tu
-   estrategia a la lista `STRATEGIES` en `tests/test_warmup.py` para
-   verificar que su señal en validation/test coincide con la de ejecución
-   continua.
-6. Crea un config YAML en `configs/`.
-
-## Interpretación de resultados
-
-- **No mires las métricas de `test` y luego cambies parámetros.** En cuanto
-  lo hagas, ese test deja de ser out-of-sample. Ver `RESEARCH_RULES.md`.
-- Un número bajo de trades (regla práctica: menos de ~30) hace que win
-  rate, profit factor y expectancy no sean estadísticamente confiables; el
-  sistema lo marca explícitamente en `notes` dentro de `metrics.json`.
-- Cuando una métrica no tiene sentido para los datos disponibles (por
-  ejemplo, Sharpe sin varianza suficiente, o retorno anualizado con muy
-  pocas velas), la métrica se reporta como `null` con una nota explicando
-  por qué, en vez de un número engañoso.
-- Compara siempre contra `buy_and_hold` en el mismo período exacto.
-- `annualized_return` se calcula a partir del tiempo real transcurrido entre
-  el primer y último timestamp del split (no del número de velas dividido
-  por una frecuencia nominal), así que sigue siendo correcto aunque falten
-  velas.
-- `sortino_ratio` usa la definición estándar de Sortino & van der Meer:
-  downside deviation es la raíz cuadrática media de `(retorno - MAR)` sobre
-  **todas** las velas por debajo del Minimum Acceptable Return (MAR, por
-  defecto 0), dividido por el tamaño total de la muestra — no solo por el
-  número de velas perdedoras. Un Sharpe o Sortino alto sigue sin implicar
-  ventaja real por sí solo: ver regla 7 en `RESEARCH_RULES.md`.
-
-## Limitaciones conocidas
-
-- Solo long/flat: no hay short ni leverage.
-- Sin fills intrabar ni simulación de profundidad de libro; el slippage es
-  un supuesto fraccional fijo, no un modelo de impacto de mercado.
-- Sin ejecución real de órdenes ni paper trading en vivo todavía —
-  `src/execution/` está reservado para eso en una fase posterior.
-- Sin búsqueda de parámetros (intencional en esta fase, ver
-  `RESEARCH_RULES.md`): las estrategias incluidas no fueron optimizadas.
-- El motor asume una única posición a la vez sobre un único símbolo; no
-  hay soporte de portafolio multi-activo todavía.
-- El dataset usado en las demos es un año de velas 1h de BTC/USDT spot
-  (2023-01-01 a 2024-01-01); resultados en ese período no generalizan a
-  otros períodos o mercados sin volver a testear. Ese dataset tiene además
-  un hueco real de una vela (2023-03-24 13:00 UTC) confirmado directamente
-  contra la API pública de Binance — no es un artefacto de este código; los
-  configs de demo lo declaran explícitamente con `allow_data_gaps: true`.
-- Solo se implementa `independent_split_evaluation`; `continuous_walk_forward`
-  (capital y posición continuos entre splits) queda documentado como modo
-  futuro pero no implementado.
-- El slippage y el modelo de gaps son deliberadamente simples; no hay
-  simulación de profundidad de libro ni de impacto de mercado.
-
-## Próxima fase (propuesta, no implementada)
-
-- Análisis de sensibilidad de parámetros (perturbar +/-X% cada parámetro y
-  ver si el resultado colapsa) antes de considerar cualquier estrategia
-  mínimamente robusta.
-- Registro estructurado de experimentos fallidos, no solo los prometedores.
-- Implementar `continuous_walk_forward` como modo de evaluación alternativo
-  y explícito, sin mezclarlo con `independent_split_evaluation`.
-- Paper trading en tiempo real sobre `src/execution/`, manteniendo la misma
-  separación de responsabilidades (fuente de datos encapsulada, sin lógica
-  de decisión en la capa de ejecución).
-
-## Phase 2 — robustness research
-
-Phase 2 is intentionally separate from the normal train/validation/test experiment runner. It adds a locked final holdout, controlled parameter studies, yearly stability reports, fixed-parameter walk-forward evaluation, cost stress, trade-return Monte Carlo diagnostics, and a Donchian-style breakout strategy.
-
-Download the multi-year BTCUSDT 1h cache on a machine with network access:
-
-```bash
-./scripts/download_phase2_dataset.sh 2018-01-01 2026-09-02
-```
-
-Then run:
-
-```bash
-python -m src.cli research configs/research_phase2.yaml
-```
-
-The Phase-2 config locks `2025-01-01` onward as `FINAL_HOLDOUT`. The Phase-2 runner refuses to run if `allow_final_holdout_evaluation` is enabled. Reports are written under `research/`; holdout metrics are not generated.
-
-## Phase 2.5: focused breakout robustness
-
-After Phase 2, run the frozen breakout-neighborhood robustness pass without opening FINAL_HOLDOUT:
-
-```bash
-python -m src.cli research25 configs/research_phase25.yaml
-```
-
-It evaluates exactly 24 pre-registered breakout variants and writes plateau, cost-stress, fixed walk-forward, trade-regime and Monte Carlo reports to `research/phase25/`. The 2025+ final holdout remains blocked by code.
-
-## POST-HOC / HOLDOUT ALREADY CONSUMED — family comparison
-
-Only breakout was carried to the final holdout. This retrospective pass answers: what would the OTHER Phase-2-registered families (sma_cross, momentum, mean_reversion) have done over the same already-consumed 2025-01-01 to 2026-09-02 period?
-
-```bash
-python -m src.cli post-holdout-family-comparison configs/post_holdout_family_comparison.yaml
-```
-
-This is explicitly **not** a new holdout and **not** out-of-sample evidence — every output is labeled `POST-HOC / HOLDOUT ALREADY CONSUMED`. It only re-evaluates configurations Phase 2 already registered (read from `research/parameter_studies/`, never regenerated from a parameter list) and reuses breakout's already-consumed final-holdout numbers verbatim rather than re-running it. Reports (`research_vs_recent.csv`, `family_summary.csv`, `yearly_2025_2026.csv`, `ranking_stability.json`, `buy_and_hold_comparison.json`, `HYPOTHESES_POST_HOC.md`) are written to `research/post_holdout_family_comparison/`. See `RESEARCH_RULES.md`'s corresponding section for the full constraints.
-
-## Phase 3B — POST-HOC regime research
-
-Investigates whether causal, trailing-only regime features (realized volatility, ATR, ADX, SMA slope, autocorrelation, Kaufman efficiency ratio, and others — see `src/research/regime_features.py`) explain when NOT to trade a trend/breakout strategy. No new strategy parameters, no threshold grid search, no machine learning.
-
-```bash
-python -m src.cli regime-study
-```
-
-Every output is labeled `POST-HOC REGIME RESEARCH / NOT OUT-OF-SAMPLE VALIDATION`. The command calls `assert_phase3_intact()` before and after running and aborts if Phase 3's frozen forward preregistration was ever modified. Reports (`feature_distributions.csv`, `entry_feature_analysis.csv`, `winner_loser_separation.csv`, `yearly_analysis.csv`, `hypotheses.md`, `posthoc_simulations/`, `metadata.json`, `PHASE3_FINGERPRINT.json`) are written to `research/regime_study/`. See its `README.md` for headline findings and `RESEARCH_RULES.md`'s corresponding section for the full constraints.
+1. Create a file in `src/strategies/` with a class inheriting from
+   `Strategy` (`src/strategies/base.py`) implementing
+   `generate_signals(df) -> pd.Series`, returning `FLAT` (0) or `LONG`
+   (1) per row.
+2. **Row `i` may only depend on `df.iloc[:i+1]`.** No `.shift(-1)`,
+   forward windows, or anything that looks at the future.
+3. If your indicator needs trailing history, override the
+   `warmup_bars` property.
+4. Register it in `src/strategies/registry.py`.
+5. Add tests in `tests/test_strategies.py` (including a
+   truncation-invariance test) and, if `warmup_bars > 0`, add it to
+   `tests/test_warmup.py`'s strategy list.

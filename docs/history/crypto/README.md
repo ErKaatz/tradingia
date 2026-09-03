@@ -76,6 +76,32 @@ crypto parameter space.
     recorded here only so the discrepancy is not lost, not because it
     is used by any code in this repository.
 
+## Phase 3 retirement from the active path (2026-09-03)
+
+Phase 3's forward preregistration was removed from the active working
+tree in the FX-first cleanup (M3), since its full executable state was
+already safe under the `crypto-research-final` tag and TradingIA no
+longer maintains functional compatibility with Phase 2/2.5/3/4.
+
+Before removal, the guard was run one final time and reproduced the
+exact same fingerprint already recorded above (`frozen_start`,
+`frozen_variants`, and all 5 guarded-file SHA-256 hashes unchanged
+since the M1 checkpoint) — confirmed by direct byte-for-byte comparison
+against the `crypto-research-final` tag's copies of each guarded file.
+No guarded file had been modified between the M1 checkpoint and this
+retirement.
+
+The 5 files the guard fingerprinted, plus the guard module itself, are
+additionally copied verbatim into [`phase3/`](phase3/) so this
+historical record is self-contained even without checking out the Git
+tag: [`PHASE3_FORWARD.md`](phase3/PHASE3_FORWARD.md),
+[`phase3_guard.py`](phase3/phase3_guard.py),
+[`breakout_forward.py`](phase3/breakout_forward.py),
+[`forward_runner.py`](phase3/forward_runner.py) (originally
+`src/forward/runner.py`), [`forward_validation.yaml`](phase3/forward_validation.yaml).
+`tests/test_forward_phase3.py` and `tests/test_phase3_guard.py` are not
+duplicated here; they are unchanged in the `crypto-research-final` tag.
+
 ## How to return to the crypto-era executable state
 
 The entire crypto application — `src/research/*` phase runners,

@@ -1,6 +1,6 @@
-"""POST-HOC SHORT-HORIZON RESEARCH — optional block bootstrap (Task 20).
+"""Optional moving block bootstrap for trade-return sequences.
 
-Short-horizon strategies can produce trade returns with temporal
+Strategies can produce trade returns with temporal
 dependence (e.g. a cluster of consecutive losing trades during a single
 adverse regime, rather than independent draws). The existing
 `monte_carlo_trade_returns` (i.i.d. bootstrap with replacement) assumes no
