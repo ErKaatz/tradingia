@@ -1,0 +1,13 @@
+# Windows-VM-only dependencies for mt5_bridge.
+#
+# These are deliberately kept OUT of the main repo's requirements.txt
+# (used by the Linux research/backtesting code) so that installing the
+# Linux side never requires MetaTrader5 or a web framework, and so this
+# file can be copied to the Windows VM on its own.
+#
+# Install on the Windows VM with:
+#   pip install -r requirements-windows.txt
+
+MetaTrader5
+fastapi
+uvicorn

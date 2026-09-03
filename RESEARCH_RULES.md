@@ -183,3 +183,18 @@ Only breakout was carried to the final holdout, because it was the most promisin
 - Any exploratory simulation used to sanity-check a hypothesis is limited to exactly one variant (no grid, no iterating toward a better result), uses a threshold policy that is either self-relative (a trailing statistic of the feature's own history) or an external literature-standard value — never a number fit to 2025-2026 — and always reports gate impact (% time blocked, trades/winners/losers avoided, exposure change) alongside return, so a filter cannot look good purely by blocking almost everything.
 - None of these hypotheses are validated by this phase. They require their own separate forward preregistration (following Phase 3's discipline) before any evidentiary weight can be assigned to them.
 - Phase 3's forward preregistration (`PHASE3_FORWARD.md`, `src/forward/`, `src/strategies/breakout_forward.py`, `configs/forward_validation.yaml`) is a separate, frozen surface. `src/research/phase3_guard.py`'s `assert_phase3_intact()` is called before and after every Phase 3B run and raises immediately on any mismatch (changed frozen start date, changed variant names, changed file content, or a missing guarded file).
+
+## Phase 4A — POST-HOC short-horizon research
+
+- Every Phase-4A historical result is labeled `POST-HOC SHORT-HORIZON RESEARCH / NOT OUT-OF-SAMPLE VALIDATION`. The 2018-2024 and 2025-2026 samples are both already observed.
+- Phase 4A is limited to BTCUSDT 15m and 1h. Other timeframes require a separately declared phase; they may not be added opportunistically after looking at results.
+- The strategy variants are frozen in `src/research/short_horizon_study.py::FROZEN_VARIANTS`. No optimizer, adaptive parameter search, machine learning, shorting, or leverage is permitted in this phase.
+- All frozen variants receive the same four execution-cost scenarios. A variant is not `INTERESTING POST-HOC` unless its net expectancy remains positive under both BASE and CONSERVATIVE costs and it has adequate trade count.
+- Spread is modeled as an additive component of effective slippage because the frozen engine exposes one adverse execution-price adjustment. Maker fills are not assumed; short-horizon tests use taker execution.
+- Gross-vs-net, fee, spread/slippage, turnover, MAE/MFE, annual, quarterly and cross-timeframe reports must remain visible. An apparent edge that is mostly execution-cost drag is not promoted.
+- Time-of-day analysis is descriptive only and cannot become a trading rule inside this phase. Multiple comparisons are explicitly reported/corrected.
+- Parameter robustness is judged across the already-frozen variants; no neighboring parameter is created after results are seen to rescue a family.
+- Monte Carlo and moving-block bootstrap are diagnostics, not proof of future profitability. Their limitations remain explicit.
+- Allowed Phase-4A classifications are `REJECTED`, `INTERESTING POST-HOC`, `COST-SENSITIVE`, `REGIME-SENSITIVE`, and `INSUFFICIENT EVIDENCE` only.
+- At most three frozen variants may be proposed for a future forward phase. Phase 4A does not create that forward phase; any candidate must be preregistered separately before it can receive future evidence.
+- Phase 3's existing forward preregistration is immutable. Phase 4A fingerprints and verifies the guarded Phase-3 files before and after running and aborts on any mismatch.

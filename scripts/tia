@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# tia -- convenience entrypoint for TradingIA's CLI, callable from any
+# directory. This script contains NO business logic: it only locates the
+# repo, locates its virtualenv, loads optional local MT5 connection config,
+# and execs `python -m src.cli ...`. All real behavior lives in
+# `src/cli/` (Python). See docs/CLI_SETUP.md.
+#
+# Usage:
+#   tia mt5 status
+#   tia mt5 preflight EURUSD
+#   tia <any other src.cli subcommand and args>
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# 1. Locate the repo root from this script's own location (never hardcoded).
+# ---------------------------------------------------------------------------
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+    DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+REPO_ROOT="$(cd -P "$SCRIPT_DIR/.." >/dev/null 2>&1 && pwd)"
+
+if [ ! -d "$REPO_ROOT" ] || [ ! -d "$REPO_ROOT/src" ]; then
+    echo "tia: TradingIA repository is unavailable at '$REPO_ROOT'." >&2
+    echo "     Is the data volume mounted?" >&2
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# 2. Locate the repo's own virtualenv Python. No fallback to a global
+#    Python -- an ad-hoc interpreter could be missing dependencies or (worse)
+#    be a different Python entirely, and this tool talks to a live trading
+#    bridge, so silent fallback is not acceptable here.
+# ---------------------------------------------------------------------------
+PYTHON="$REPO_ROOT/.venv/bin/python"
+if [ ! -x "$PYTHON" ]; then
+    echo "tia: TradingIA virtual environment not found." >&2
+    echo "     Expected an executable at: $PYTHON" >&2
+    echo "     Create it with: python3 -m venv \"$REPO_ROOT/.venv\" && \"$PYTHON\" -m pip install -r \"$REPO_ROOT/requirements.txt\"" >&2
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# 3. Load local MT5 connection config, if present.
+#
+#    Security: this is a restricted KEY=VALUE parser, NOT `source`. The file
+#    is never executed as shell -- only these three exact keys are read, and
+#    only into variables of the same name. This means arbitrary shell
+#    content in the file (e.g. "$(rm -rf ~)") is never evaluated; a
+#    malformed or hostile file can, at worst, set one of these three
+#    variables to a wrong-looking string.
+#
+#    Precedence: a variable already present in this process's environment
+#    always wins over the file -- so `MT5_REMOTE_URL=... tia mt5 status`
+#    works without touching the file.
+# ---------------------------------------------------------------------------
+CONFIG_FILE="$HOME/.config/tradingia/mt5.env"
+
+if [ -f "$CONFIG_FILE" ]; then
+    # Fail closed on loose permissions: this file can hold a real bridge
+    # token. Reject if group/other have any permission bit set.
+    perm_bits="$(stat -c '%a' "$CONFIG_FILE" 2>/dev/null || stat -f '%Lp' "$CONFIG_FILE" 2>/dev/null || echo '')"
+    if [ -n "$perm_bits" ]; then
+        group_other="${perm_bits: -2}"
+        if [ "$group_other" != "00" ]; then
+            echo "tia: refusing to read $CONFIG_FILE -- permissions are too open ($perm_bits)." >&2
+            echo "     This file can contain a real bridge token. Fix with: chmod 600 \"$CONFIG_FILE\"" >&2
+            exit 1
+        fi
+    fi
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Skip blank lines and comments.
+        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+        # Only accept a strict KEY=VALUE shape for the three known keys.
+        line="${line%$'\r'}"
+        if [[ "$line" =~ ^(MT5_REMOTE_URL|MT5_REMOTE_TOKEN|MT5_REMOTE_API_VERSION)=(.*)$ ]]; then
+            key="${BASH_REMATCH[1]}"
+            value="${BASH_REMATCH[2]}"
+            value="${value%$'\r'}"
+            # Strip one layer of matching surrounding quotes, if present.
+            if [[ "$value" =~ ^\"(.*)\"$ || "$value" =~ ^\'(.*)\'$ ]]; then
+                value="${BASH_REMATCH[1]}"
+            fi
+            # Existing process environment takes precedence over the file.
+            current="$(eval "echo \"\${$key:-}\"")"
+            if [ -z "$current" ]; then
+                export "$key=$value"
+            fi
+        fi
+        # Any other line shape (including one that looks like a shell
+        # command) is silently ignored -- it is never evaluated.
+    done < "$CONFIG_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# 4. Alias translation: `tia mt5 ...` -> `python -m src.cli mt5-remote ...`.
+#    Any other first argument passes through unchanged, so future
+#    `src.cli` subcommands work with no wrapper changes.
+# ---------------------------------------------------------------------------
+if [ "${1:-}" = "mt5" ]; then
+    shift
+    set -- mt5-remote "$@"
+fi
+
+# ---------------------------------------------------------------------------
+# 5. Run from the repo root (some components use relative paths), exec
+#    (not a subshell call) so signals like Ctrl+C reach Python directly and
+#    the exit code propagates unmodified.
+# ---------------------------------------------------------------------------
+cd "$REPO_ROOT"
+exec "$PYTHON" -m src.cli "$@"

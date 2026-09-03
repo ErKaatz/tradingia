@@ -26,7 +26,10 @@ from src.research.holdout_eval import run_final_holdout
 from src.research.diagnostics import run_holdout_diagnostics
 from src.research.post_holdout_family_comparison import run_post_holdout_family_comparison
 from src.research.regime_study import run_regime_study
+from src.research.short_horizon_study import run_short_horizon_study
+from src.research.short_horizon_phase4b import run_phase4b_diagnostics
 from src.forward.runner import preregister_forward, run_forward_eval
+from src.cli.mt5_remote_cli import add_mt5_remote_subparser
 
 
 def cmd_download_data(args: argparse.Namespace) -> None:
@@ -128,9 +131,19 @@ def cmd_regime_study(args: argparse.Namespace) -> None:
     print(f"POST-HOC REGIME RESEARCH (Phase 3B) saved to {out}")
 
 
+def cmd_short_horizon(args: argparse.Namespace) -> None:
+    out = run_short_horizon_study(args.config_path)
+    print(f"POST-HOC SHORT-HORIZON RESEARCH (Phase 4A) saved to {out}")
+
+
 def cmd_preregister_forward(args: argparse.Namespace) -> None:
     out = preregister_forward(args.config_path)
     print(f"Forward hypotheses preregistered at {out}")
+
+
+def cmd_phase4b(args: argparse.Namespace) -> None:
+    out = run_phase4b_diagnostics(args.config_path)
+    print(f"Phase-4B edge-vs-cost diagnostics saved to {out}")
 
 
 def cmd_forward_eval(args: argparse.Namespace) -> None:
@@ -186,6 +199,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_regime.set_defaults(func=cmd_regime_study)
 
+    p_short = subparsers.add_parser(
+        "short-horizon",
+        help="POST-HOC Phase 4A: run frozen BTCUSDT 15m/1h short-horizon strategy study",
+    )
+    p_short.add_argument("config_path", nargs="?", default="configs/short_horizon_phase4a.yaml", help="Path to Phase-4A YAML config")
+    p_short.set_defaults(func=cmd_short_horizon)
+
+    p_short_b = subparsers.add_parser(
+        "short-horizon-diagnose",
+        help="POST-HOC Phase 4B: diagnose gross signal edge vs execution costs for frozen Phase-4A families",
+    )
+    p_short_b.add_argument("config_path", nargs="?", default="configs/short_horizon_phase4b.yaml", help="Path to Phase-4B YAML config")
+    p_short_b.set_defaults(func=cmd_phase4b)
+
     p_pre = subparsers.add_parser("preregister-forward", help="Freeze post-holdout forward hypotheses before new data")
     p_pre.add_argument("config_path", help="Path to forward validation YAML config")
     p_pre.set_defaults(func=cmd_preregister_forward)
@@ -193,6 +220,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_fwd = subparsers.add_parser("forward-eval", help="Evaluate frozen hypotheses only on forward data from 2026-09-03 onward")
     p_fwd.add_argument("config_path", help="Path to forward validation YAML config")
     p_fwd.set_defaults(func=cmd_forward_eval)
+
+    add_mt5_remote_subparser(subparsers)
 
     return parser
 

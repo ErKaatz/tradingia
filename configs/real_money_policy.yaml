@@ -1,0 +1,31 @@
+# Frozen execution policy — FX Phase 0.
+#
+# live.live_trading_enabled MUST remain false for the entirety of Phase 0.
+# This file does not become effective on its own: src/execution/policy.py
+# combines it with independently-verified remote facts (environment,
+# account trade mode, reconciliation state, kill switch, position count,
+# symbol metadata) before authorizing any action. See LIVE_TRADING_RULES.md
+# for the human-readable version of these same rules.
+#
+# forbidden_behaviors below can only be set to `true`. The loader
+# (RealMoneyPolicy.from_dict) raises if any of them is missing or set to
+# anything other than `true` — this schema has no way to represent
+# permission for martingale, averaging down, a recovery grid, automatic
+# size increases, or compounding.
+
+live:
+  live_trading_enabled: false
+  # Future micro-live phase only, once explicitly approved. Not active now.
+  max_initial_capital_usd: 10
+  max_additional_funding_usd: 0
+
+limits:
+  max_simultaneous_positions: 1
+  minimum_volume_only: true
+
+forbidden_behaviors:
+  martingale: true
+  averaging_down: true
+  recovery_grid: true
+  automatic_size_increase: true
+  compounding: true

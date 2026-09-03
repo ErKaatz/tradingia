@@ -1,0 +1,23 @@
+TradingIA Step 4.1 audit hardening patch
+
+Overlay these files on the current repo state AFTER the previously-applied
+clock, RECEIVED-resolution, AutoTrading-preflight, and journal-CLI patches.
+
+Changed:
+- mt5_bridge/app.py
+- mt5_bridge/config.py
+- mt5_bridge/trading.py
+- mt5_bridge/tests/test_app.py
+- mt5_bridge/tests/test_trading.py
+- FX_PHASE0_STATUS.md
+- CONTINUATION_NOTES.md
+
+After applying on Linux:
+1) run your normal pytest suite;
+2) copy the ENTIRE updated mt5_bridge/ directory to the Windows VM;
+3) restart `python -m mt5_bridge` on Windows;
+4) verify `tia mt5 status` shows:
+   bridge_build: step4-audit-hardened-2026-09-03
+
+No demo/live order is required to validate this patch. Do not place a new order
+just to test the audit changes.

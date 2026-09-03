@@ -1,0 +1,42 @@
+BROKERS — MT5 OPTIONS (documentation only, not a decision)
+============================================================
+
+This file is a shortlist for future reference. It is NOT a recommendation,
+NOT a regulatory claim, and NOT wired into any code. No broker is frozen
+or selected. Nothing here should be treated as verified/current — brokers
+change conditions, entities, and regulatory status over time.
+
+Two rough categories under consideration:
+
+1) Cent accounts — candidates for an eventual micro-live experiment
+   (see LIVE_TRADING_RULES.md: max USD 10 initial funding, demo-proven
+   infrastructure only, no live trading during Phase 0):
+     - HFM Cent
+     - Exness Standard Cent
+     - RoboForex ProCent
+
+2) Raw/ECN accounts — candidates for a later stage, if a strategy ever
+   earns enough evidence to justify tighter spreads / different cost
+   structure than a Cent account offers:
+     - Pepperstone Razor
+     - FP Markets Raw
+     - Tickmill Raw
+     - IC Markets
+
+Nothing above is final. Before depositing any real money with any broker,
+verify directly with the broker (not from memory, not from this file):
+
+  - Exact legal entity that would hold the account, and whether it
+    accepts clients resident in Paraguay.
+  - Regulator / license under which that specific entity operates.
+  - Minimum deposit.
+  - Contract size and minimum lot per symbol of interest.
+  - Real commission (not just the advertised headline rate).
+  - Realistic observed spread (not just the advertised minimum).
+  - Whether Expert Advisors / algorithmic trading via the MT5 Python API
+    are permitted under that account's terms.
+  - Withdrawal process and any onboarding/KYC requirements.
+
+No claim about any of the above (legality, licensing, tax treatment,
+suitability) is made or implied by this file. This is a starting point
+for manual due diligence, not a substitute for it.

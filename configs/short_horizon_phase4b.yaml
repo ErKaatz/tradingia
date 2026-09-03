@@ -1,0 +1,10 @@
+# Phase 4B — POST-HOC edge-vs-cost diagnostics
+# No parameter search. Uses only Phase-4A frozen variants from these families.
+families:
+  - volume_shock_direction
+  - range_expansion
+  - extreme_move_reversal
+allow_parameter_search: false
+historical_status: POST-HOC / NOT OUT-OF-SAMPLE VALIDATION
+base_cost_scenario: B_base
+follow_through_minutes: [15, 30, 60, 120, 240]

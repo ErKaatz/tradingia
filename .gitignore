@@ -15,3 +15,9 @@ results/
 /research/
 /research.2/
 *.zip
+
+# mt5_bridge's local SQLite store (idempotency/journal/kill-switch/
+# reconciliation) -- runtime state, never committed. The Windows VM has
+# its own copy of mt5_bridge/ entirely; this only matters for local
+# testing on Linux.
+*.sqlite3

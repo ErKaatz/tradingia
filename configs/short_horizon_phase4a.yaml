@@ -1,0 +1,19 @@
+# Phase 4A — POST-HOC SHORT-HORIZON RESEARCH
+# The actual variant grid is intentionally frozen in
+# src/research/short_horizon_study.py::FROZEN_VARIANTS.
+symbol: BTCUSDT
+timeframes:
+  - 15m
+  - 1h
+allow_parameter_search: false
+historical_status: POST-HOC / NOT OUT-OF-SAMPLE VALIDATION
+cost_scenarios:
+  - A_optimistic_but_realistic
+  - B_base
+  - C_conservative
+  - D_severe
+monte_carlo:
+  simulations: 2000
+  seed: 42
+block_bootstrap:
+  block_size: 5
