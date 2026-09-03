@@ -10,7 +10,14 @@ import pandas as pd
 import pytest
 
 from src.backtesting.engine import BacktestResult
-from src.metrics.metrics import annualized_return, elapsed_years, sortino_ratio
+from src.metrics.metrics import (
+    TRADING_PERIODS_PER_YEAR,
+    annualized_return,
+    elapsed_years,
+    sharpe_ratio,
+    sortino_ratio,
+    volatility,
+)
 
 
 def make_result(timestamps, equity_values, positions=None):
@@ -134,3 +141,36 @@ def test_sortino_respects_custom_mar():
     assert sortino_ratio(result, "1h", minimum_acceptable_return=0.0) is None
     high_mar_sortino = sortino_ratio(result, "1h", minimum_acceptable_return=10.0)
     assert high_mar_sortino is not None
+
+
+def test_periods_per_year_override_bypasses_crypto_table_for_unknown_timeframe():
+    # An FX-shaped timeframe with no entry in TRADING_PERIODS_PER_YEAR must
+    # not silently fall back to a crypto (24/7) assumption: without an
+    # explicit override it returns None, and with one it uses exactly that
+    # value instead of guessing.
+    equity = [1000, 1010, 1020, 1030, 1015, 1040, 1055]
+    timestamps = pd.date_range("2024-01-01", periods=len(equity), freq="h", tz="UTC")
+    result = make_result(timestamps, [float(e) for e in equity])
+
+    assert volatility(result, "fx_1h") is None
+    assert sharpe_ratio(result, "fx_1h") is None
+    assert sortino_ratio(result, "fx_1h") is None
+
+    fx_periods_per_year = 252 * 24  # illustrative FX trading-day convention
+    assert volatility(result, "fx_1h", periods_per_year=fx_periods_per_year) is not None
+    assert sharpe_ratio(result, "fx_1h", periods_per_year=fx_periods_per_year) is not None
+    assert sortino_ratio(result, "fx_1h", periods_per_year=fx_periods_per_year) is not None
+
+
+def test_periods_per_year_override_matches_explicit_crypto_table_lookup():
+    # For a known crypto timeframe, passing the table's own value explicitly
+    # must reproduce the default (no-override) result exactly.
+    equity = [1000, 1010, 1020, 1030, 1015, 1040, 1055]
+    timestamps = pd.date_range("2024-01-01", periods=len(equity), freq="h", tz="UTC")
+    result = make_result(timestamps, [float(e) for e in equity])
+
+    default_sortino = sortino_ratio(result, "1h")
+    overridden_sortino = sortino_ratio(
+        result, "1h", periods_per_year=TRADING_PERIODS_PER_YEAR["1h"]
+    )
+    assert overridden_sortino == pytest.approx(default_sortino)
