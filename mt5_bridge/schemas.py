@@ -241,6 +241,20 @@ def history_response(bars: list[BackendBar]) -> dict:
     return {"bars": [history_bar_response(b) for b in bars]}
 
 
+def profit_calc_response(symbol: str, side: str, volume, price_open, price_close, profit) -> dict:
+    """`side` is the human-readable `"buy"`/`"sell"` string (never MT5's
+    raw integer order_type) -- consistent with every other side field
+    this bridge already exposes (see `position_response`/`order_response`)."""
+    return {
+        "symbol": symbol,
+        "side": side,
+        "volume": str(volume),
+        "price_open": str(price_open),
+        "price_close": str(price_close),
+        "profit": str(profit),
+    }
+
+
 def position_response(position: BackendPosition) -> dict:
     return {
         "position_id": str(position.ticket),

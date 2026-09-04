@@ -15,7 +15,7 @@ from decimal import Decimal
 
 import pytest
 
-from src.execution.base import AccountTradeMode, Environment, ExecutionTimeframe, HistoryRequest
+from src.execution.base import AccountTradeMode, Environment, ExecutionTimeframe, HistoryRequest, Side
 from src.execution.mt5_remote import (
     EXPECTED_API_VERSION,
     ExecutionAuthenticationError,
@@ -1059,3 +1059,37 @@ def test_symbol_metadata_currency_and_tick_fields_absent_are_none_not_error():
     assert metadata.currency_base is None
     assert metadata.currency_profit is None
     assert metadata.currency_margin is None
+
+
+def test_profit_calc_valid_parsed():
+    payload = {"symbol": "EURUSD", "side": "buy", "volume": "0.01", "price_open": "1.1000", "price_close": "1.1050", "profit": "5.0"}
+    transport = _FakeTransport(responses_by_path={"/v1/profit-calc/EURUSD": _json_response(200, payload)})
+    client = MT5RemoteExecutionClient(_config(), transport=transport)
+    profit = client.profit_calc("EURUSD", Side.BUY, Decimal("0.01"), Decimal("1.1000"), Decimal("1.1050"))
+    assert profit == Decimal("5.0")
+
+
+def test_profit_calc_serializes_query_params():
+    payload = {"profit": "5.0"}
+    transport = _FakeTransport(responses_by_path={"/v1/profit-calc/EURUSD": _json_response(200, payload)})
+    client = MT5RemoteExecutionClient(_config(), transport=transport)
+    client.profit_calc("EURUSD", Side.SELL, Decimal("0.02"), Decimal("1.2000"), Decimal("1.1950"))
+    url = transport.calls[-1][0]
+    assert "side=sell" in url
+    assert "volume=0.02" in url
+    assert "price_open=1.2000" in url
+    assert "price_close=1.1950" in url
+
+
+def test_profit_calc_rejects_non_positive_volume():
+    transport = _FakeTransport()
+    client = MT5RemoteExecutionClient(_config(), transport=transport)
+    with pytest.raises(ValueError):
+        client.profit_calc("EURUSD", Side.BUY, Decimal("0"), Decimal("1.1000"), Decimal("1.1050"))
+
+
+def test_profit_calc_rejects_non_positive_prices():
+    transport = _FakeTransport()
+    client = MT5RemoteExecutionClient(_config(), transport=transport)
+    with pytest.raises(ValueError):
+        client.profit_calc("EURUSD", Side.BUY, Decimal("0.01"), Decimal("-1.1000"), Decimal("1.1050"))

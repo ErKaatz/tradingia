@@ -16,6 +16,7 @@ Read-only endpoints (unchanged from Step 3):
     GET /v1/quotes/{symbol}
     GET /v1/time-diagnostics/{symbol}
     GET /v1/history/{symbol}?start=...&end=...&timeframe=...
+    GET /v1/profit-calc/{symbol}?side=...&volume=...&price_open=...&price_close=...
     GET /v1/positions
     GET /v1/orders
 
@@ -56,7 +57,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from mt5_bridge.auth import check_bearer_token
-from mt5_bridge.backend import MT5Backend, MT5BackendError, MT5_TIMEFRAME_ATTR_BY_NAME
+from mt5_bridge.backend import (
+    MT5Backend,
+    MT5BackendError,
+    MT5_TIMEFRAME_ATTR_BY_NAME,
+    ORDER_TYPE_BUY,
+    ORDER_TYPE_SELL,
+    ProfitCalcRequest,
+)
 from mt5_bridge.config import BRIDGE_BUILD, BridgeConfig
 from mt5_bridge.errors import (
     BackendUnavailableError,
@@ -83,6 +91,7 @@ from mt5_bridge.schemas import (
     kill_switch_response,
     orders_response,
     positions_response,
+    profit_calc_response,
     quote_response,
     reconciliation_response,
     symbol_response,
@@ -335,6 +344,50 @@ def create_app(backend: MT5Backend, config: BridgeConfig, store: BridgeStore | N
         if len(bars) > MAX_HISTORY_BARS:
             raise BadRequestError(f"requested range would return {len(bars)} bars, exceeding the maximum of {MAX_HISTORY_BARS}")
         return history_response(bars)
+
+    @app.get("/v1/profit-calc/{symbol}")
+    def get_profit_calc(
+        symbol: str,
+        side: str = Query(...),
+        volume: str = Query(...),
+        price_open: str = Query(...),
+        price_close: str = Query(...),
+        authorization: str | None = Header(default=None),
+    ):
+        """READ-ONLY: MT5's `order_calc_profit()` as a diagnostic oracle
+        (Phase 5B, Section 11). Computes profit for a hypothetical
+        open/close price pair -- creates no order, no deal, no position,
+        and never calls into `mt5_bridge.trading`. Exists purely so
+        TradingIA's own PnL formula can be checked against MT5's, for
+        synthetic scenarios, without ever touching `/v1/demo/...`.
+        """
+        _authenticate(authorization)
+        if side not in ("buy", "sell"):
+            raise BadRequestError("side must be 'buy' or 'sell'")
+        try:
+            volume_dec = Decimal(volume)
+            price_open_dec = Decimal(price_open)
+            price_close_dec = Decimal(price_close)
+        except InvalidOperation:
+            raise BadRequestError("volume/price_open/price_close must be decimal numbers")
+        if volume_dec <= 0:
+            raise BadRequestError("volume must be positive")
+        if price_open_dec <= 0 or price_close_dec <= 0:
+            raise BadRequestError("price_open/price_close must be positive")
+
+        order_type = ORDER_TYPE_BUY if side == "buy" else ORDER_TYPE_SELL
+        request = ProfitCalcRequest(
+            symbol=symbol,
+            order_type=order_type,
+            volume=volume_dec,
+            price_open=price_open_dec,
+            price_close=price_close_dec,
+        )
+        try:
+            profit = backend.order_calc_profit(request)
+        except MT5BackendError as exc:
+            raise BackendUnavailableError(str(exc)) from exc
+        return profit_calc_response(symbol, side, volume_dec, price_open_dec, price_close_dec, profit)
 
     @app.get("/v1/positions")
     def get_positions(authorization: str | None = Header(default=None)):

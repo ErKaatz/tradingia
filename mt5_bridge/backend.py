@@ -263,6 +263,23 @@ class TradeSendResult:
     comment: str | None
 
 
+@dataclass(frozen=True)
+class ProfitCalcRequest:
+    """Inputs for MT5's `order_calc_profit()` -- a pure calculation call,
+    not an order. `order_type` is `ORDER_TYPE_BUY` or `ORDER_TYPE_SELL`
+    (see `mt5_bridge.trading`'s constants); MT5 itself distinguishes the
+    two because a BUY's profit is `(price_close - price_open) * volume *
+    contract_size` while a SELL's is the negation, but this backend does
+    not duplicate that formula -- it asks MT5 to compute it (Phase 5B,
+    Section 11: "use MT5 as an oracle for correctness")."""
+
+    symbol: str
+    order_type: int
+    volume: Decimal
+    price_open: Decimal
+    price_close: Decimal
+
+
 class MT5BackendError(Exception):
     """Raised by a backend when MT5 itself reports failure for a call
     that should otherwise have succeeded (e.g. `symbol_info` returns
@@ -302,6 +319,8 @@ class MT5Backend(Protocol):
     def order_check(self, request: TradeRequest) -> TradeCheckResult: ...
 
     def order_send(self, request: TradeRequest) -> TradeSendResult: ...
+
+    def order_calc_profit(self, request: ProfitCalcRequest) -> Decimal: ...
 
 
 # --------------------------------------------------------------------------
@@ -457,6 +476,19 @@ class FakeMT5Backend:
             retcode=TRADE_RETCODE_DONE, deal=deal, order=ticket, volume=request.volume, price=request.price,
             comment="fake: order_send filled",
         )
+
+    def order_calc_profit(self, request: ProfitCalcRequest) -> Decimal:
+        """Deterministic fake formula (contract_size defaults to 100000
+        for symbols this fake has no registered metadata for) -- good
+        enough for bridge-layer unit tests; never used as ground truth
+        for a real oracle comparison (see PHASE5B_STATUS.md, which
+        compares against the REAL backend only)."""
+        symbol_info = self._symbols.get(request.symbol)
+        contract_size = symbol_info.trade_contract_size if symbol_info is not None else Decimal("100000")
+        price_diff = request.price_close - request.price_open
+        if request.order_type == ORDER_TYPE_BUY:
+            return price_diff * request.volume * contract_size
+        return -price_diff * request.volume * contract_size
 
 
 # --------------------------------------------------------------------------
@@ -713,6 +745,24 @@ class RealMT5Backend:
             price=clean_decimal(float(result.price)),
             comment=str(getattr(result, "comment", None)),
         )
+
+    def order_calc_profit(self, request: ProfitCalcRequest) -> Decimal:
+        """Calls `MetaTrader5.order_calc_profit()` -- a pure calculation
+        against the terminal's own pricing/contract logic, NOT an order
+        (no ticket, no deal, no position is created or modified). Used
+        as a read-only oracle to validate this project's own PnL formula
+        (Phase 5B, Section 11) -- this method must never be called from
+        anywhere in `mt5_bridge/trading.py`'s order-placement path."""
+        result = self._mt5.order_calc_profit(
+            request.order_type,
+            request.symbol,
+            float(request.volume),
+            float(request.price_open),
+            float(request.price_close),
+        )
+        if result is None:
+            raise MT5BackendError(f"MetaTrader5.order_calc_profit() returned None for {request.symbol}")
+        return clean_decimal(float(result))
 
 
 def _mt5_symbol_info_to_backend(info) -> BackendSymbolInfo:

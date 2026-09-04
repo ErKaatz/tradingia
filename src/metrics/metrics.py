@@ -17,7 +17,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from src.backtesting.engine import BacktestResult
+from src.backtesting.models import BacktestResult
 
 # There is no market-agnostic bars-per-year table here on purpose: how many
 # periods a year contains depends on the market's actual trading calendar

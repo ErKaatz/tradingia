@@ -979,6 +979,29 @@ class MT5RemoteExecutionClient:
         payload = self._get_json(f"/v1/journal?limit={limit}", "journal")
         return _parse_journal(payload)
 
+    def profit_calc(
+        self, symbol: str, side: Side, volume: Decimal, price_open: Decimal, price_close: Decimal
+    ) -> Decimal:
+        """READ-ONLY MT5 PnL oracle (Phase 5B, Section 11): calls the
+        bridge's `/v1/profit-calc/{symbol}` diagnostic, itself a wrapper
+        over `MetaTrader5.order_calc_profit()` -- a pure calculation, not
+        an order. Used to compare this project's own PnL formula
+        (`src/fx/backtesting/pnl.py`) against MT5's for synthetic
+        scenarios; never called from any order-placement path."""
+        if volume <= 0:
+            raise ValueError(f"volume must be positive, got {volume}")
+        if price_open <= 0 or price_close <= 0:
+            raise ValueError("price_open/price_close must be positive")
+        safe_symbol = _validate_symbol_for_path(symbol)
+        path = (
+            f"/v1/profit-calc/{safe_symbol}?side={urlquote(side.value, safe='')}"
+            f"&volume={urlquote(str(volume), safe='')}"
+            f"&price_open={urlquote(str(price_open), safe='')}"
+            f"&price_close={urlquote(str(price_close), safe='')}"
+        )
+        payload = self._get_json(path, "profit_calc")
+        return _parse_decimal(_require_field(payload, "profit", "profit_calc"), "profit_calc.profit")
+
     def time_diagnostics(self, symbol: str) -> TimeDiagnostics:
         """READ-ONLY. Never calls order_check/order_send. Captures this
         process's own clock as close as possible to the HTTP call, so the
