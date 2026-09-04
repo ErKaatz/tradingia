@@ -153,6 +153,9 @@ def symbol_response(info: BackendSymbolInfo) -> dict:
         "trade_tick_value": str(info.trade_tick_value) if info.trade_tick_value is not None else None,
         "trade_enabled": info.trade_enabled,
         "visible": info.visible,
+        "currency_base": info.currency_base,
+        "currency_profit": info.currency_profit,
+        "currency_margin": info.currency_margin,
     }
 
 

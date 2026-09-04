@@ -3,6 +3,7 @@
 Usage:
     python -m src.cli compare results/<experiment_a> results/<experiment_b>
     python -m src.cli mt5-remote --help
+    python -m src.cli fx-history --help
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.cli.fx_cli import add_fx_subparser
 from src.cli.mt5_remote_cli import add_mt5_remote_subparser
 
 
@@ -65,6 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_compare.set_defaults(func=cmd_compare)
 
     add_mt5_remote_subparser(subparsers)
+    add_fx_subparser(subparsers)
 
     return parser
 

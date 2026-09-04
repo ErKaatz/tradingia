@@ -118,6 +118,9 @@ class BackendSymbolInfo:
     trade_enabled: bool | None
     visible: bool
     filling_mode: int | None = None
+    currency_base: str | None = None
+    currency_profit: str | None = None
+    currency_margin: str | None = None
 
 
 @dataclass(frozen=True)
@@ -741,6 +744,9 @@ def _mt5_symbol_info_to_backend(info) -> BackendSymbolInfo:
         trade_enabled=(trade_mode == SYMBOL_TRADE_MODE_FULL) if trade_mode is not None else None,
         visible=bool(info.visible),
         filling_mode=getattr(info, "filling_mode", None),
+        currency_base=getattr(info, "currency_base", None),
+        currency_profit=getattr(info, "currency_profit", None),
+        currency_margin=getattr(info, "currency_margin", None),
     )
 
 

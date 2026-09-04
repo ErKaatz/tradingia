@@ -862,15 +862,42 @@ def test_remote_config_from_env_missing_token_raises(monkeypatch):
         RemoteConfig.from_env(bridge_url=BRIDGE_URL)
 
 
-def test_history_bar_uses_volume_fallback_key():
+def test_history_bar_missing_tick_volume_rejected_not_defaulted_from_generic_volume():
+    # tick_volume must never be silently backfilled from a generic
+    # "volume" key -- that key does not honestly mean the same thing
+    # (see HistoryBar's docstring). A bar missing tick_volume is rejected.
     bar = {k: v for k, v in VALID_HISTORY_BAR.items() if k != "tick_volume"}
     bar["volume"] = "50"
     payload = {"bars": [bar]}
     transport = _FakeTransport(responses_by_path={"/v1/history/EURUSD": _json_response(200, payload)})
     client = MT5RemoteExecutionClient(_config(), transport=transport)
     request = HistoryRequest(symbol="EURUSD", timeframe=ExecutionTimeframe.M15, start=datetime(2026, 9, 1, tzinfo=timezone.utc), end=datetime(2026, 9, 2, tzinfo=timezone.utc))
+    with pytest.raises(ExecutionProtocolError, match="tick_volume"):
+        client.history(request)
+
+
+def test_history_bar_tick_volume_and_real_volume_kept_distinct():
+    bar = dict(VALID_HISTORY_BAR, real_volume="7", spread=12)
+    payload = {"bars": [bar]}
+    transport = _FakeTransport(responses_by_path={"/v1/history/EURUSD": _json_response(200, payload)})
+    client = MT5RemoteExecutionClient(_config(), transport=transport)
+    request = HistoryRequest(symbol="EURUSD", timeframe=ExecutionTimeframe.M15, start=datetime(2026, 9, 1, tzinfo=timezone.utc), end=datetime(2026, 9, 2, tzinfo=timezone.utc))
     result = client.history(request)
-    assert result.bars[0].volume == Decimal("50")
+    bar_out = result.bars[0]
+    assert bar_out.tick_volume == Decimal("120")
+    assert bar_out.real_volume == Decimal("7")
+    assert bar_out.spread_points == 12
+
+
+def test_history_bar_real_volume_absent_is_none_not_an_error():
+    # FX OTC symbols routinely report no real_volume; this must not be
+    # treated as a data error.
+    payload = {"bars": [VALID_HISTORY_BAR]}
+    transport = _FakeTransport(responses_by_path={"/v1/history/EURUSD": _json_response(200, payload)})
+    client = MT5RemoteExecutionClient(_config(), transport=transport)
+    request = HistoryRequest(symbol="EURUSD", timeframe=ExecutionTimeframe.M15, start=datetime(2026, 9, 1, tzinfo=timezone.utc), end=datetime(2026, 9, 2, tzinfo=timezone.utc))
+    result = client.history(request)
+    assert result.bars[0].real_volume is None
 
 
 def test_history_bars_not_a_list_rejected():
@@ -987,3 +1014,48 @@ def test_account_permission_flags_parsed():
     account = client.account()
     assert account.trade_allowed is True
     assert account.trade_expert is True
+
+
+def test_account_server_parsed_when_present():
+    payload = dict(VALID_ACCOUNT, server="HFMarketsGlobal-Demo2")
+    transport = _FakeTransport(responses_by_path={"/v1/account": _json_response(200, payload)})
+    client = MT5RemoteExecutionClient(_config(), transport=transport)
+    account = client.account()
+    assert account.server == "HFMarketsGlobal-Demo2"
+
+
+def test_account_server_absent_is_none_not_error():
+    transport = _FakeTransport(responses_by_path={"/v1/account": _json_response(200, VALID_ACCOUNT)})
+    client = MT5RemoteExecutionClient(_config(), transport=transport)
+    account = client.account()
+    assert account.server is None
+
+
+def test_symbol_metadata_currency_and_tick_fields_parsed_when_present():
+    payload = dict(
+        VALID_SYMBOL_METADATA,
+        trade_tick_size="0.00001",
+        trade_tick_value="1.0",
+        currency_base="EUR",
+        currency_profit="USD",
+        currency_margin="EUR",
+    )
+    transport = _FakeTransport(responses_by_path={"/v1/symbols/EURUSD": _json_response(200, payload)})
+    client = MT5RemoteExecutionClient(_config(), transport=transport)
+    metadata = client.symbol_metadata("EURUSD")
+    assert metadata.tick_size == Decimal("0.00001")
+    assert metadata.tick_value == Decimal("1.0")
+    assert metadata.currency_base == "EUR"
+    assert metadata.currency_profit == "USD"
+    assert metadata.currency_margin == "EUR"
+
+
+def test_symbol_metadata_currency_and_tick_fields_absent_are_none_not_error():
+    transport = _FakeTransport(responses_by_path={"/v1/symbols/EURUSD": _json_response(200, VALID_SYMBOL_METADATA)})
+    client = MT5RemoteExecutionClient(_config(), transport=transport)
+    metadata = client.symbol_metadata("EURUSD")
+    assert metadata.tick_size is None
+    assert metadata.tick_value is None
+    assert metadata.currency_base is None
+    assert metadata.currency_profit is None
+    assert metadata.currency_margin is None

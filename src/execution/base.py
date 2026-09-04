@@ -140,6 +140,13 @@ class SymbolMetadata:
     exist specifically so policy never hardcodes a lot size (e.g. 0.01) —
     the frozen sizing rule is "use the broker's minimum", which requires
     knowing what that minimum actually is per symbol.
+
+    `tick_size`/`tick_value` and the three currency fields are optional
+    because not every bridge/symbol reports them; a missing value stays
+    `None` rather than being guessed (e.g. never assume
+    `contract_size == 100000` just because that is common for FX majors —
+    the broker is the authority, see `docs/history` for the prior
+    incident class this project avoids).
     """
 
     symbol: str
@@ -149,6 +156,11 @@ class SymbolMetadata:
     contract_size: Decimal
     digits: int
     point: Decimal
+    tick_size: Decimal | None = None
+    tick_value: Decimal | None = None
+    currency_base: str | None = None
+    currency_profit: str | None = None
+    currency_margin: str | None = None
 
 
 @dataclass(frozen=True)
@@ -195,6 +207,7 @@ class AccountSummary:
     currency: str
     trade_allowed: bool | None = None
     trade_expert: bool | None = None
+    server: str | None = None
 
 
 @dataclass(frozen=True)
@@ -308,13 +321,26 @@ class HistoryRequest:
 
 @dataclass(frozen=True)
 class HistoryBar:
+    """One historical OHLC bar as reported by the bridge's `copy_rates_range`.
+
+    `tick_volume` (MT5's per-bar tick count) is never relabeled as a
+    generic `volume` -- see FX_PHASE0_STATUS.md/PHASE5A_STATUS.md for
+    why conflating tick count with traded volume is a real, previously
+    made mistake this project avoids repeating. `real_volume` is `None`
+    when the broker does not report it (routine for FX OTC symbols; not
+    an error). `spread_points` is the bar's spread in the symbol's own
+    points, or `None` if unavailable.
+    """
+
     symbol: str
     timestamp: datetime
     open: Decimal
     high: Decimal
     low: Decimal
     close: Decimal
-    volume: Decimal
+    tick_volume: Decimal
+    real_volume: Decimal | None = None
+    spread_points: int | None = None
 
 
 @dataclass(frozen=True)

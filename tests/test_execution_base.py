@@ -167,7 +167,7 @@ def test_history_request_and_bar_roundtrip_shapes():
         high=Decimal("1.2"),
         low=Decimal("1.0"),
         close=Decimal("1.15"),
-        volume=Decimal("100"),
+        tick_volume=Decimal("100"),
     )
     result = HistoryResult(symbol="EURUSD", bars=(bar,))
     assert result.symbol == req.symbol

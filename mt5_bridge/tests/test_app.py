@@ -233,6 +233,44 @@ def test_valid_symbol_metadata():
     assert body["volume_min"] == "0.01"
 
 
+def test_symbol_metadata_includes_currency_fields_when_reported():
+    backend = FakeMT5Backend()
+    backend.set_symbol(
+        "EURUSD",
+        BackendSymbolInfo(
+            name="EURUSD", description="Euro vs US Dollar", digits=5, point=D(0.00001),
+            volume_min=D(0.01), volume_step=D(0.01), volume_max=D(100.0), trade_contract_size=D(100000.0),
+            trade_tick_size=D(0.00001), trade_tick_value=D(1.0), trade_enabled=True, visible=True,
+            currency_base="EUR", currency_profit="USD", currency_margin="EUR",
+        ),
+    )
+    client = _client(backend=backend)
+    resp = client.get("/v1/symbols/EURUSD", headers=_auth_headers())
+    body = resp.json()
+    assert body["currency_base"] == "EUR"
+    assert body["currency_profit"] == "USD"
+    assert body["currency_margin"] == "EUR"
+
+
+def test_symbol_metadata_currency_fields_absent_are_null_not_error():
+    backend = FakeMT5Backend()
+    backend.set_symbol(
+        "EURUSD",
+        BackendSymbolInfo(
+            name="EURUSD", description=None, digits=5, point=D(0.00001),
+            volume_min=D(0.01), volume_step=D(0.01), volume_max=D(100.0), trade_contract_size=D(100000.0),
+            trade_tick_size=D(0.00001), trade_tick_value=D(1.0), trade_enabled=True, visible=True,
+        ),
+    )
+    client = _client(backend=backend)
+    resp = client.get("/v1/symbols/EURUSD", headers=_auth_headers())
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["currency_base"] is None
+    assert body["currency_profit"] is None
+    assert body["currency_margin"] is None
+
+
 # 13. missing symbol.
 def test_missing_symbol_returns_404():
     client = _client()

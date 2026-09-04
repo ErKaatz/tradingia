@@ -432,6 +432,9 @@ def _parse_account(payload: dict[str, Any]) -> AccountSummary:
     trade_mode = _parse_trade_mode(payload.get("trade_mode"))
     balance = _parse_decimal(_require_field(payload, "balance", "account"), "account.balance")
     equity = _parse_decimal(_require_field(payload, "equity", "account"), "account.equity")
+    server = payload.get("server")
+    if server is not None and not isinstance(server, str):
+        raise ExecutionProtocolError("account.server must be a string if present")
     return AccountSummary(
         account_id=account_id,
         trade_mode=trade_mode,
@@ -440,6 +443,7 @@ def _parse_account(payload: dict[str, Any]) -> AccountSummary:
         currency=currency,
         trade_allowed=_parse_optional_bool(payload, "trade_allowed", "account"),
         trade_expert=_parse_optional_bool(payload, "trade_expert", "account"),
+        server=server,
     )
 
 
@@ -463,6 +467,18 @@ def _parse_symbol_metadata(payload: dict[str, Any], requested_symbol: str) -> Sy
         raise ExecutionProtocolError("symbol_metadata: volume_min/volume_step/volume_max must be positive")
     if volume_min > volume_max:
         raise ExecutionProtocolError("symbol_metadata: volume_min must be <= volume_max")
+    tick_size = _parse_optional_decimal(payload.get("trade_tick_size"), "symbol_metadata.trade_tick_size")
+    tick_value = _parse_optional_decimal(payload.get("trade_tick_value"), "symbol_metadata.trade_tick_value")
+    currency_base = payload.get("currency_base")
+    currency_profit = payload.get("currency_profit")
+    currency_margin = payload.get("currency_margin")
+    for name, value in [
+        ("currency_base", currency_base),
+        ("currency_profit", currency_profit),
+        ("currency_margin", currency_margin),
+    ]:
+        if value is not None and not isinstance(value, str):
+            raise ExecutionProtocolError(f"symbol_metadata.{name} must be a string if present")
     return SymbolMetadata(
         symbol=symbol,
         volume_min=volume_min,
@@ -471,6 +487,11 @@ def _parse_symbol_metadata(payload: dict[str, Any], requested_symbol: str) -> Sy
         contract_size=contract_size,
         digits=digits,
         point=point,
+        tick_size=tick_size,
+        tick_value=tick_value,
+        currency_base=currency_base,
+        currency_profit=currency_profit,
+        currency_margin=currency_margin,
     )
 
 
@@ -516,15 +537,22 @@ def _parse_quote(payload: dict[str, Any], requested_symbol: str) -> Quote:
 
 
 def _parse_history_bar(payload: dict[str, Any], symbol: str) -> HistoryBar:
+    """`tick_volume` and `real_volume` are parsed as distinct, honestly
+    named fields -- never merged into one generic `volume`. `tick_volume`
+    is required (the bridge always sends it); `real_volume` legitimately
+    stays `None` for FX OTC symbols that do not report broker-side
+    traded volume, which is not an error condition."""
     timestamp = _parse_utc_timestamp(_require_field(payload, "timestamp", "history_bar"), "history_bar.timestamp")
     open_ = _parse_decimal(_require_field(payload, "open", "history_bar"), "history_bar.open")
     high = _parse_decimal(_require_field(payload, "high", "history_bar"), "history_bar.high")
     low = _parse_decimal(_require_field(payload, "low", "history_bar"), "history_bar.low")
     close = _parse_decimal(_require_field(payload, "close", "history_bar"), "history_bar.close")
-    volume_raw = payload.get("tick_volume", payload.get("volume"))
-    volume = _parse_decimal(_require_field({"v": volume_raw}, "v", "history_bar"), "history_bar.volume") if volume_raw is not None else None
-    if volume is None:
-        raise ExecutionProtocolError("history_bar: missing tick_volume/volume")
+    tick_volume = _parse_decimal(_require_field(payload, "tick_volume", "history_bar"), "history_bar.tick_volume")
+    real_volume_raw = payload.get("real_volume")
+    real_volume = _parse_decimal(real_volume_raw, "history_bar.real_volume") if real_volume_raw is not None else None
+    spread_raw = payload.get("spread")
+    if spread_raw is not None and (not isinstance(spread_raw, int) or isinstance(spread_raw, bool)):
+        raise ExecutionProtocolError("history_bar.spread must be an integer if present")
     if high < max(open_, close, low):
         raise ExecutionProtocolError(
             f"history_bar at {timestamp}: high ({high}) must be >= max(open, close, low)"
@@ -533,7 +561,17 @@ def _parse_history_bar(payload: dict[str, Any], symbol: str) -> HistoryBar:
         raise ExecutionProtocolError(
             f"history_bar at {timestamp}: low ({low}) must be <= min(open, close, high)"
         )
-    return HistoryBar(symbol=symbol, timestamp=timestamp, open=open_, high=high, low=low, close=close, volume=volume)
+    return HistoryBar(
+        symbol=symbol,
+        timestamp=timestamp,
+        open=open_,
+        high=high,
+        low=low,
+        close=close,
+        tick_volume=tick_volume,
+        real_volume=real_volume,
+        spread_points=spread_raw,
+    )
 
 
 def _parse_history(payload: dict[str, Any], requested_symbol: str) -> HistoryResult:
