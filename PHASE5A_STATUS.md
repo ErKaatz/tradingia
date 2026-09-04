@@ -130,13 +130,21 @@ corrupt them across a DST transition. This phase's `mt5_provider.py`
 respects that same boundary and adds no new correction of its own.
 
 Status of that documented UTC contract for the real HFM broker/server
-this project actually uses: **PENDING EMPIRICAL VALIDATION.** The
-diagnostic tooling to verify it (`time_diagnostics.py`,
-`fx-history time-diagnostics` CLI command, and the marked integration
-tests in `tests/fx/test_time_diagnostics_integration.py`) is built and
-was actually run against the real bridge during this phase — see
-Empirical Findings below for what happened and the exact command to
-re-run once the bridge is reachable.
+this project actually uses, after empirical validation (2026-09-04):
+
+```
+VERIFIED:
+bridge historical timestamps represent UTC instants, and normalization
+(normalize_bar / FxBar.__post_init__) preserves them unchanged.
+ServerClockOffset is confirmed NOT applied to historical bars.
+
+VERIFIED (separately):
+H4 bar alignment is stable at UTC hours {0,4,8,12,16,20} across the
+2026 US and EU DST transitions -- no seasonal shift observed for this
+broker/account. See Empirical Findings below for the exact evidence and
+what remains a bar-alignment question versus a timestamp-timezone
+question (they are not the same claim).
+```
 
 ## Session/Gap Model
 
@@ -157,11 +165,12 @@ UNEXPECTED_GAP      -- anything else longer than the nominal step
 - No London/NY/Asia session boundaries assigned per bar — that is a
   research-time concern for a future phase, not a data-integrity
   concern this phase needed to solve.
-- The Friday/Sunday-or-Monday weekend heuristic is a common
-  approximation for FX, but the *exact* broker weekend close/open
-  timestamps have not been empirically confirmed against the real
-  bridge (see Empirical Findings) — treat `EXPECTED_WEEKEND` as
-  **INFERRED**, not **VERIFIED**, until that validation runs.
+- The Friday/Sunday-or-Monday weekend heuristic was empirically
+  confirmed against this broker (see Empirical Findings): HFM's actual
+  weekend boundary for EURUSD is Friday 23:00 UTC (last H1/M15 bar) to
+  Monday 00:00 UTC (first bar) — **zero Sunday bars observed** across
+  every weekend checked. `EXPECTED_WEEKEND` is now **VERIFIED** for
+  this broker/symbol, not merely inferred.
 
 **No gap is ever repaired.** `validation.py` never forward-fills OHLC,
 interpolates, fabricates a synthetic candle, duplicates the last close,
@@ -230,9 +239,16 @@ deferred, not silently missing.
 ## Unit tests
 
 ```
-pytest -q tests/fx/                                                 → 68 passed
-pytest -q tests/fx/test_time_diagnostics_integration.py             → 4 skipped (bridge unreachable; see below)
+pytest -q tests/fx/                                                                    → 68 passed
+pytest -q tests/fx/test_time_diagnostics_integration.py                                → 4 skipped (bridge unreachable in a plain run)
+pytest -q tests/fx/test_time_diagnostics_integration.py -m requires_real_mt5 -s         → 4 passed (bridge reachable, real HFM, 2026-09-04)
 ```
+
+The default `pytest -q` run never requires the bridge (the integration
+file self-skips via `pytest.skip` when `MT5_REMOTE_URL`/`MT5_REMOTE_TOKEN`
+are not set in that process's environment) — verified both with the
+bridge unreachable and, later in this closeout, with it reachable and
+the marker explicitly selected.
 
 Coverage: schema invariants (11 tests: valid bar, naive/non-UTC
 timestamp, invalid OHLC both directions, non-positive price, negative
@@ -257,84 +273,241 @@ mocked time-diagnostics logic (7 tests: weekend-boundary detection,
 Sunday-bar counting, H4-alignment reporting, empty response, bridge-
 error propagation).
 
-## MT5 integration — what was actually verified against HFM
+## MT5 integration — empirically verified against real HFM (2026-09-04)
 
-```
-PENDING EMPIRICAL VALIDATION
-```
+The Windows VM/bridge was unreachable earlier in this phase (network-
+level timeout, confirmed via `tia mt5 status`, raw TCP, and ICMP ping
+all timing out) and was started/made reachable mid-session. Full
+empirical validation was then run read-only against the real HFM Demo
+account. **Zero orders were placed; `demo-open`/`demo-close` were never
+called.**
 
-The Windows VM / bridge was **not reachable** from this environment
-during this phase. Verified attempts, all timing out after the
-client's configured 10s timeout (not a code error — a genuine
-unreachable-host condition):
+### Connectivity
 
 ```
 $ tia mt5 status
-(no response within the wrapper's own read timeout)
-
-$ tia fx-history time-diagnostics EURUSD --timeframe H1 \
-    --start 2026-08-25T00:00:00+00:00 --end 2026-09-04T00:00:00+00:00
-ERROR: request to bridge timed out after 10.0s
-
-$ MT5_REMOTE_URL=... MT5_REMOTE_TOKEN=... \
-    pytest -q tests/fx/test_time_diagnostics_integration.py -m requires_real_mt5 -s
-1 skipped in 10.10s  (skip reason: "bridge configured but unreachable -- PENDING EMPIRICAL VALIDATION")
+bridge_alive:            True
+terminal_connected:      True
+terminal_trade_allowed:  True
+api_version:             1
+bridge_version:          1
+bridge_build:            step4-audit-hardened-2026-09-03   (matches expected)
+broker_name:             HF Markets (SV) Ltd.
+account_trade_mode:      demo
+account_trade_allowed:   True
+account_trade_expert:    True
+account_currency:        USD
+account_balance:         99.61
+kill_switch:             inactive
+reconciliation:          ok
 ```
 
-No fabricated finding is reported for weekend-gap shape, Sunday-bar
-presence, H4 alignment stability across DST, or the exact UTC contract
-of historical timestamps for this specific broker/server. All of that
-remains genuinely unknown until the Windows VM is running and reachable.
+Live-tick diagnostic (`tia mt5 time-diagnostics EURUSD`), for context
+only — this is the LIVE-tick correction, not the historical-bar path:
+`server_clock_offset_seconds: 10800.0` (3h, consistent with HFM
+EEST), `quote_age_seconds ≈ 0.7s`. Working exactly as designed.
 
-**To run the empirical validation once the bridge is reachable:**
+### Symbol metadata — EURUSD
 
-```bash
-tia mt5 status   # confirm reachability first (read-only)
+| Field | Value | Present? |
+|---|---|---|
+| `requested_symbol` | EURUSD | yes |
+| `resolved_symbol` | EURUSD (no broker suffix on this account) | yes |
+| `digits` | 5 | yes |
+| `point` | 0.00001 | yes |
+| `trade_tick_size` | 0.00001 | yes |
+| `trade_tick_value` | 1.0 | yes |
+| `contract_size` | 100000.0 | yes |
+| `volume_min` | 0.01 | yes |
+| `volume_max` | 60.0 | yes |
+| `volume_step` | 0.01 | yes |
+| `currency_base` | EUR | yes |
+| `currency_profit` | USD | yes |
+| `currency_margin` | EUR | yes |
+| `server` (via `account()`) | HFMarketsGlobal-Demo | yes |
+| `broker` (distinct from `server`) | — | **not available** (no endpoint reports it; confirmed still `None`, not a bug) |
 
-# Weekly EURUSD H1 window spanning a weekend
-tia fx-history time-diagnostics EURUSD --timeframe H1 \
-    --start <10-days-ago ISO-8601 UTC> --end <now ISO-8601 UTC>
+No discrepancy found between what MT5 returned and what the Phase 5A
+parsers (`SymbolMetadata`, `AccountSummary`) captured — every field
+above round-tripped correctly through `client.symbol_metadata()` /
+`client.account()`.
 
-# H4 alignment over two weeks (repeat once more, straddling a DST date,
-# to check for a seasonal shift)
-tia fx-history time-diagnostics EURUSD --timeframe H4 \
-    --start <14-days-ago ISO-8601 UTC> --end <now ISO-8601 UTC>
+### Timestamp findings — M1 / M15 / H1 / H4
 
-# Full fetch + validate + fingerprint + optionally save (also captures symbol metadata)
-python -m src.cli fx-history fetch EURUSD --timeframe H1 \
-    --start <range-start> --end <range-end> [--save]
+6-hour window, `2026-09-04 08:31→14:30 UTC` (M1/M15/H1) and current H4 bar:
 
-# Or run the marked integration tests directly:
-MT5_REMOTE_URL=http://<vm-ip>:<port> MT5_REMOTE_TOKEN=<token> \
-    pytest -q tests/fx/test_time_diagnostics_integration.py -m requires_real_mt5 -s
+| Timeframe | Bar count | First timestamp (UTC) | Last timestamp (UTC) | Monotonic | Duplicates | tz-aware UTC |
+|---|---|---|---|---|---|---|
+| M1 | 360 | 08:31:00 | 14:30:00 | yes | 0 | yes |
+| M15 | 24 | 08:45:00 | 14:30:00 | yes | 0 | yes |
+| H1 | 6 | 09:00:00 | 14:00:00 | yes | 0 | yes |
+| H4 | 1 | 12:00:00 | 12:00:00 | yes | 0 | yes |
+
+`ServerClockOffset` non-application confirmed directly: the most
+recent real H1 bar (`14:00 UTC`) was only 0.51h old relative to actual
+wall-clock UTC at fetch time — if the live tick's +3h correction were
+wrongly applied to history, this bar would appear either ~3.5h stale or
+~2.5h in the future. Neither happened.
+
+### Weekend findings
+
+Two independent recent weekends, H1, plus one in M15:
+
+| Window | Last bar before weekend (UTC, weekday) | First bar after (UTC, weekday) | Gap duration | Sunday bars | Classification |
+|---|---|---|---|---|---|
+| H1, Aug 28→31 | 2026-08-28 23:00 (Fri) | 2026-08-31 00:00 (Mon) | 2d 1h | 0 | `EXPECTED_WEEKEND` |
+| H1, Aug 21→24 | 2026-08-21 23:00 (Fri) | 2026-08-24 00:00 (Mon) | 2d 1h | 0 | `EXPECTED_WEEKEND` |
+| M15, Aug 28→31 | 2026-08-28 23:45 (Fri) | 2026-08-31 00:00 (Mon) | 2d 0h15m | 0 | `EXPECTED_WEEKEND` |
+
+Both weekends behave identically. **HFM/this account never produces a
+Sunday-timestamped EURUSD bar** — the market reopens exactly at Monday
+00:00 UTC. A 3-week continuous H1 fetch (`2026-08-17→2026-09-04`, 351
+real bars) spanning both weekends confirmed: `contiguous=348,
+expected_weekend=2, unexpected_gap=0` — zero false positives, both real
+weekend closures correctly classified, `validation.is_valid == True`.
+The synthetic `UNEXPECTED_GAP` unit tests (`tests/fx/test_sessions_gaps.py`,
+`tests/fx/test_validation.py`, 19 tests) still pass unchanged, confirming
+the classifier correctly separates real normal weekly progression from
+a genuine anomaly in both directions.
+
+### DST / H4 alignment findings
+
+H4 bars fetched for windows straddling both 2026 DST transitions
+(2026-03-08 US spring-forward, 2026-03-29 EU spring-forward — both
+fall on a Sunday when the market is closed, so the transition instant
+itself has no bars; the meaningful test is grid alignment immediately
+before vs. after):
+
+| Window | Hours of day seen (UTC) |
+|---|---|
+| Before US DST (Mar 1–7) | {0, 4, 8, 12, 16, 20} |
+| After US DST (Mar 9–15) | {0, 4, 8, 12, 16, 20} |
+| Before EU DST (Mar 22–28) | {0, 4, 8, 12, 16, 20} |
+| After EU DST (Mar 30–Apr 5) | {0, 4, 8, 12, 16, 20} |
+| Current (Sep, both DST active) | {0, 4, 8, 12, 16, 20} |
+
+**H4 alignment is stable and identical across all five windows.** No
+seasonal shift was observed for this broker/account/symbol. H1 bars
+directly spanning the DST weekend (`2026-03-07 20:00 → 2026-03-09 04:00`)
+show no gap/skip/duplicate beyond the ordinary weekend closure itself
+(market was closed Sat–Sun as usual; 5 contiguous bars resume Monday
+00:00 UTC with zero anomalous entries).
+
+**Explicit distinction, as required:** this is a finding about **bar
+grid alignment** (H4 buckets start at the same UTC hours year-round for
+this broker), not a claim about which economic session/timezone
+convention the broker uses to define those buckets — no assumption
+about New York close, EET/EEST, or any named convention was made or is
+needed to state this result.
+
+### Daily / rollover findings
+
+D1 bars for one real trading week (`2026-08-24→2026-08-31`), read-only:
+
+```
+2026-08-24 00:00 UTC (Mon)  tick_volume=77516  spread=16
+2026-08-25 00:00 UTC (Tue)  tick_volume=69528  spread=16
+2026-08-26 00:00 UTC (Wed)  tick_volume=76202  spread=16
+2026-08-27 00:00 UTC (Thu)  tick_volume=69622  spread=16
+2026-08-28 00:00 UTC (Fri)  tick_volume=91874  spread=16
+2026-08-31 00:00 UTC (Mon)  tick_volume=70560  spread=16   <- correctly skips Sat/Sun
 ```
 
-M1/M15/H4 empirical validation (per the task's timeframe checklist) is
-covered by the same commands with `--timeframe M1`/`M15`/`H4`; none
-were run for the reason above.
+D1 bars start exactly at `00:00 UTC` every weekday, with no missing
+Mon–Fri bar and a correct Fri→Mon skip (no Saturday/Sunday D1 bar
+exists). No anomalous bar duration/position was found. This is
+read-only inspection only — no swap/rollover economic model was built,
+per instructions.
+
+### Volume findings
+
+3-week real H1 dataset (351 bars):
+
+| Field | Observation |
+|---|---|
+| `tick_volume` | always present; min 131, max 18793; **zero zero-values**; no negatives |
+| `real_volume` | always present at the wire level, but **always exactly `0.0`** for every bar (not `null`/absent — this broker reports an explicit zero rather than omitting the field) |
+| Normalization | both fields preserved distinctly through `normalize_bar`; `validate_fx_bars` correctly does not flag `real_volume == 0` as an error |
+
+Confirms the FX-OTC pattern the schema was designed for: `tick_volume`
+is a real, populated, market-activity proxy; `real_volume` carries no
+independent broker-reported trading-volume information for this
+symbol/account, and is not treated as a data-quality problem.
+
+### Spread-field findings
+
+Same 351-bar dataset:
+
+| Metric | Value |
+|---|---|
+| Present (non-null) | 351/351 |
+| Negative values | 0 |
+| Min / max | 16 / 44 points |
+| Distribution | 337/351 bars at the baseline 16 points; remaining bars (17, 19×2, 22×3, 25, 26, 28, 29, 30, 37, 44×2) are occasional elevated-spread bars |
+
+Quality-only observation, per instructions — no cost model, no
+strategy-relevant interpretation drawn from this.
+
+### Fingerprint reproducibility
+
+Fixed range `EURUSD H1 2026-08-10T00:00→2026-08-11T00:00 UTC`, two
+independent fetches:
+
+```
+fetch 1: 25 bars, sha256 = 2d91015f819a5a954c7cd48adf7ce6e08c08645e7e03866432e915e46c9e0f8f
+fetch 2: 25 bars, sha256 = 2d91015f819a5a954c7cd48adf7ce6e08c08645e7e03866432e915e46c9e0f8f
+SHA1 == SHA2: True
+created_at_utc differs between the two (confirms operational metadata correctly excluded)
+```
+
+No investigation needed — identical on the first attempt, no
+discrepancy to localize.
+
+### Storage roundtrip
+
+Same real 25-bar dataset, into a temporary directory (never
+`data/fx/`, never committed):
+
+```
+fingerprint before save: 2d91015f819a5a954c7cd48adf7ce6e08c08645e7e03866432e915e46c9e0f8f
+fingerprint after load:  2d91015f819a5a954c7cd48adf7ce6e08c08645e7e03866432e915e46c9e0f8f
+match: True
+```
+
+Confirmed `data/fx/` remains absent from the working tree and untracked
+after this validation (`git status` unaffected).
+
+### Bugs found
+
+**None.** No discrepancy between MT5's real responses and the Phase 5A
+parsers/schema/normalization/gap-classifier was found. No code change
+was made as part of this empirical closeout — every result above
+matched the implementation's existing contract on the first real
+attempt.
 
 ## EURUSD observations
 
-None. No dataset was fetched (bridge unreachable). No claim is made
-about EURUSD's real historical data quality, timestamp behavior, or
-gaps in this environment — see the section above for exactly how to
-obtain that once the bridge is reachable. **No performance, return, or
-PnL figure was computed or would be computed by any tool built in this
-phase** — `time_diagnostics.py` and the `fx-history` CLI commands report
-only bar counts, timestamps, gap classifications, and metadata.
+Real EURUSD data was fetched and inspected across M1/M15/H1/H4/D1 for
+structure, timestamps, gaps, volume, and spread quality only — see
+tables above. **No performance, return, drawdown, or PnL figure was
+computed anywhere in this phase or this closeout.**
 
 ## Limitations
 
-- No holiday calendar (see Session/Gap Model).
-- No incremental cache/partial-range merge (see Storage/Cache).
-- `broker` (distinct from `server`) is not available from any current
-  bridge endpoint.
-- The weekend-gap heuristic and the UTC-timestamp contract for
-  `copy_rates_range` are both **INFERRED**, not **VERIFIED**, for this
-  specific broker/server, pending the empirical validation above.
-- M1/M5/M15/M30/D1 timeframes are supported by the schema/provider/CLI
-  exactly as H1/H4 are, but none were empirically exercised against
-  real HFM data in this phase (bridge unreachable).
+- No holiday calendar (see Session/Gap Model) — still deferred; not
+  needed for what real data showed (only ordinary weekend closures were
+  observed, no unexplained holiday-shaped gap).
+- No incremental cache/partial-range merge (see Storage/Cache) — still
+  deferred.
+- `broker` (distinct from `server`) is confirmed not available from any
+  current bridge endpoint (empirically re-checked, not just inferred).
+- DST/H4 alignment was validated for the **2026 US and EU spring**
+  transitions only (the only ones with available history at validation
+  time); the 2026 autumn transitions (2026-10-25 EU, 2026-11-01 US) had
+  not occurred yet and were not checked.
+- Validation covers EURUSD only, on one specific HFM demo account/server
+  (`HFMarketsGlobal-Demo`). Behavior was not cross-checked against a
+  second symbol or a second broker/server.
 
 ## Next phase
 
