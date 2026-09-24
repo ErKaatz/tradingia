@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 from src.strategies.base import FLAT, LONG
+from src.strategies.breakout import Breakout
 from src.strategies.buy_and_hold import BuyAndHold
 from src.strategies.mean_reversion import MeanReversion
 from src.strategies.momentum import Momentum
@@ -33,6 +34,7 @@ ALL_STRATEGIES = [
     lambda: SmaCross(fast=3, slow=5),
     lambda: Momentum(lookback=3),
     lambda: MeanReversion(rsi_period=5, oversold=30, exit_rsi=50),
+    lambda: Breakout(entry_lookback=3, exit_lookback=2),
 ]
 
 
@@ -98,6 +100,52 @@ def test_momentum_flat_when_price_below_lookback():
     df = make_df(closes)
     signals = Momentum(lookback=3).generate_signals(df)
     assert signals.iloc[3] == FLAT
+
+
+def make_hlc_df(highs, lows, closes):
+    n = len(highs)
+    return pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2024-01-01", periods=n, freq="h", tz="UTC"),
+            "open": closes,
+            "high": highs,
+            "low": lows,
+            "close": closes,
+            "volume": [1.0] * n,
+        }
+    )
+
+
+def test_breakout_requires_valid_lookbacks():
+    with pytest.raises(ValueError):
+        Breakout(entry_lookback=1, exit_lookback=5)
+    with pytest.raises(ValueError):
+        Breakout(entry_lookback=5, exit_lookback=0)
+
+
+def test_breakout_flat_until_warmup_complete():
+    # entry_lookback=3 needs 3 prior completed bars before prior_high is
+    # ever non-NaN; with only 3 bars total that never happens.
+    df = make_hlc_df(highs=[100, 101, 99], lows=[95, 96, 94], closes=[98, 99, 97])
+    signals = Breakout(entry_lookback=3, exit_lookback=2).generate_signals(df)
+    assert (signals == FLAT).all()
+
+
+def test_breakout_enters_and_exits_on_prior_extremes():
+    highs = [100, 101, 99, 100, 150, 151, 150, 90]
+    lows = [95, 96, 94, 95, 145, 146, 145, 80]
+    closes = [98, 99, 97, 98, 150, 150, 148, 85]
+    df = make_hlc_df(highs, lows, closes)
+    signals = Breakout(entry_lookback=3, exit_lookback=2).generate_signals(df)
+
+    # No valid prior_high/prior_low yet, and bar 3's close doesn't clear
+    # the prior 3-bar high (101) -> flat through bar 3.
+    assert (signals.iloc[:4] == FLAT).all()
+    # Bar 4's close (150) clears the prior 3-bar high (101) -> enters LONG,
+    # and stays LONG while close remains above the trailing 2-bar low.
+    assert (signals.iloc[4:7] == LONG).all()
+    # Bar 7's close (85) breaks below the trailing 2-bar low (145) -> exits.
+    assert signals.iloc[7] == FLAT
 
 
 def test_mean_reversion_enters_on_oversold_and_exits_on_recovery():

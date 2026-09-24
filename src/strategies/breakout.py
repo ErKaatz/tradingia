@@ -1,7 +1,8 @@
 """Donchian-style breakout using only prior completed bars."""
 from __future__ import annotations
 import pandas as pd
-from src.strategies.base import FLAT, LONG, Strategy
+from src.strategies.base import Strategy
+from src.strategies.state_machine import run_entry_exit_state_machine
 
 class Breakout(Strategy):
     name = "breakout"
@@ -21,13 +22,14 @@ class Breakout(Strategy):
         # of bars that were already complete before today's close.
         prior_high = df["high"].shift(1).rolling(self.entry_lookback, min_periods=self.entry_lookback).max()
         prior_low = df["low"].shift(1).rolling(self.exit_lookback, min_periods=self.exit_lookback).min()
-        signal = pd.Series(FLAT, index=df.index, dtype=int)
-        state = FLAT
-        for i in range(len(df)):
-            close = df["close"].iloc[i]
-            if state == FLAT and pd.notna(prior_high.iloc[i]) and close > prior_high.iloc[i]:
-                state = LONG
-            elif state == LONG and pd.notna(prior_low.iloc[i]) and close < prior_low.iloc[i]:
-                state = FLAT
-            signal.iloc[i] = state
+        close = df["close"]
+
+        def should_enter(i: int) -> bool:
+            return pd.notna(prior_high.iloc[i]) and close.iloc[i] > prior_high.iloc[i]
+
+        def should_exit(i: int) -> bool:
+            return pd.notna(prior_low.iloc[i]) and close.iloc[i] < prior_low.iloc[i]
+
+        signal = run_entry_exit_state_machine(len(df), should_enter, should_exit)
+        signal.index = df.index
         return signal

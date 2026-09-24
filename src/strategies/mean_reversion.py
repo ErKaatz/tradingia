@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import pandas as pd
 
-from src.strategies.base import FLAT, LONG, Strategy
+from src.strategies.base import Strategy
+from src.strategies.state_machine import run_entry_exit_state_machine
 
 
 def _rsi(close: pd.Series, period: int) -> pd.Series:
@@ -57,16 +58,14 @@ class MeanReversion(Strategy):
     def generate_signals(self, df: pd.DataFrame) -> pd.Series:
         rsi = _rsi(df["close"], self.rsi_period)
 
-        signal = pd.Series(FLAT, index=df.index, dtype=int)
-        position = FLAT
-        for i in range(len(df)):
+        def should_enter(i: int) -> bool:
             r = rsi.iloc[i]
-            if pd.isna(r):
-                signal.iloc[i] = FLAT
-                continue
-            if position == FLAT and r < self.oversold:
-                position = LONG
-            elif position == LONG and r > self.exit_rsi:
-                position = FLAT
-            signal.iloc[i] = position
+            return pd.notna(r) and r < self.oversold
+
+        def should_exit(i: int) -> bool:
+            r = rsi.iloc[i]
+            return pd.notna(r) and r > self.exit_rsi
+
+        signal = run_entry_exit_state_machine(len(df), should_enter, should_exit)
+        signal.index = df.index
         return signal
