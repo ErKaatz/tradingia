@@ -63,11 +63,12 @@ def validate_ohlcv(
       - high is the max and low is the min of (open, high, low, close)
 
     Time gaps (bars missing relative to `timeframe`'s nominal duration) are
-    detected separately and are NOT treated as errors by default, since some
-    markets/datasets legitimately have gaps (e.g. exchange downtime,
-    illiquid pairs). Pass `allow_gaps=False` to instead treat any detected
-    gap as a validation error — this is the recommended setting for a
-    market expected to trade continuously, such as BTC/USDT spot.
+    detected separately and ARE treated as errors by default (`allow_gaps`
+    defaults to `False`) — the recommended setting for a market expected to
+    trade continuously, such as BTC/USDT spot. Pass `allow_gaps=True` to
+    instead demote any detected gap to a warning, for markets/datasets that
+    legitimately have gaps (e.g. exchange downtime, illiquid pairs, FX
+    session close).
     """
     result = OhlcvValidationResult()
 

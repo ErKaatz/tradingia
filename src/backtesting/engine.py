@@ -27,7 +27,7 @@ exact bar and price that produced it.
 
 `df`/`signals` passed to `run()` may include leading rows that exist only
 to let a strategy's indicators warm up (see `strategies/base.py`'s
-`warmup_bars` and `experiments/runner.py`). Pass the index where the actual
+`warmup_bars`). Pass the index where the actual
 evaluated period begins as `evaluation_start`. Rows before it:
 
 - still have signals computed on them and still affect `target_position`
@@ -37,8 +37,8 @@ evaluated period begins as `evaluation_start`. Rows before it:
 - can NEVER themselves hold an open position, be entered, or be exited: the
   engine forces FLAT for the entire warm-up region regardless of what the
   (shifted) signal says, so the "independent split evaluation" semantics
-  (each split starts flat with its own initial capital — see
-  experiments/runner.py) hold exactly at `evaluation_start`;
+  (each split starts flat with its own initial capital) hold exactly at
+  `evaluation_start`;
 - are excluded from the returned equity curve and trade log entirely.
 
 With the default `evaluation_start=0` there is no warm-up region and this

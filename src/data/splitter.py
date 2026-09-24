@@ -16,8 +16,9 @@ full dataframe (so validation can borrow trailing history from train, and
 test can borrow trailing history from train+validation) — but never from
 rows that lie chronologically after the target's end. See
 `src/strategies/base.py` for how a strategy declares how much warm-up it
-needs, and `src/experiments/runner.py` for how the extended slice is used
-to compute signals and then trimmed back to the target period only.
+needs; `src/backtesting/engine.py`'s `evaluation_start` is what trims the
+extended slice back to the target period only once signals are computed
+on it.
 """
 
 from __future__ import annotations

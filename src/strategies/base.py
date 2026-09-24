@@ -42,12 +42,12 @@ class Strategy(ABC):
         considered fully "warmed up" (indicators past their initialization
         transient).
 
-        This is used by the experiment runner to borrow that many bars of
-        history from *before* a split's start (e.g. validation borrowing
-        trailing history from train) so the first bars of a split don't see
-        an artificially cold/degenerate indicator. It is bookkeeping for the
-        runner, not a lookahead mechanism: warm-up bars are always
-        chronologically before the target period, never after.
+        This is used (via `src/data/splitter.py`'s `slice_with_warmup`) to
+        borrow that many bars of history from *before* a split's start (e.g.
+        validation borrowing trailing history from train) so the first bars
+        of a split don't see an artificially cold/degenerate indicator. It is
+        bookkeeping for the caller, not a lookahead mechanism: warm-up bars
+        are always chronologically before the target period, never after.
 
         Default is 0 (no warm-up needed). Strategies with trailing windows
         (moving averages, RSI, momentum lookback, ...) must override this.

@@ -85,3 +85,19 @@ def test_position_still_open_at_end_of_data_is_force_closed(make_config):
     assert len(result.trades) == 1
     assert result.final_account.position is None
     assert result.trades[0].close_time == bars[-1].timestamp_utc
+
+
+def test_equity_curve_records_flat_on_the_bar_a_position_closes_to_flat(make_config):
+    # Regression test: the bar that closes LONG/SHORT -> FLAT (and does not
+    # reopen) must be labeled FLAT in the equity curve, not the side that
+    # was just closed.
+    #
+    # signals[0]=LONG takes effect (shifted) at bar[1], opening LONG there.
+    # signals[1]=FLAT takes effect at bar[2], closing that LONG with no
+    # reopen -- bar[2] is the one that must read FLAT.
+    bars = make_bars([1.1000, 1.1010, 1.1020])
+    signals = [TargetPosition.LONG, TargetPosition.FLAT, TargetPosition.FLAT]
+    engine = FxBacktestEngine(make_config())
+    result = engine.run(bars, signals)
+    assert result.equity_curve[1][2] is PositionSide.LONG
+    assert result.equity_curve[2][2] is PositionSide.FLAT

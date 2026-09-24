@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import fcntl
 import signal
@@ -26,6 +27,8 @@ from src.execution.quote_freshness import (
     QuoteFreshnessError,
     validate_quote_freshness,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class RuntimeMode(str, Enum):
@@ -286,10 +289,12 @@ class OperationalRuntime:
                     reasons.append(DecisionReason.MARKET_CLOSED)
                     connectivity = ConnectivityState.DEGRADED
                 else:
+                    logger.exception("quote check failed outside expected weekend closure")
                     checks["quote"] = "FAIL:UNAVAILABLE"
                     reasons.append(DecisionReason.BRIDGE_UNAVAILABLE)
                     connectivity = ConnectivityState.DEGRADED
         except Exception:
+            logger.exception("bridge/account/reconciliation check failed")
             checks["bridge"] = "FAIL:UNAVAILABLE"
             reasons.append(DecisionReason.BRIDGE_UNAVAILABLE)
             connectivity = ConnectivityState.DISCONNECTED

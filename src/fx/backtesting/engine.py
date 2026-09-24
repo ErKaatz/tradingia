@@ -171,7 +171,8 @@ class FxBacktestEngine:
 
             if current_side != desired_side:
                 if position is not None:
-                    trade = self._close(position, bar, i - (open_bar_index or i), accrued_swap)
+                    opened_at = open_bar_index if open_bar_index is not None else i
+                    trade = self._close(position, bar, i - opened_at, accrued_swap)
                     trades.append(trade)
                     balance += trade.net_pnl
                     realized_pnl += trade.net_pnl
@@ -195,7 +196,7 @@ class FxBacktestEngine:
             equity = balance
             if position is not None:
                 equity = balance + self._unrealized_pnl(position, bar) - accrued_swap
-            equity_curve.append((bar.timestamp_utc, equity, current_side if position is None else position.side))
+            equity_curve.append((bar.timestamp_utc, equity, desired_side if position is None else position.side))
 
             # Equity is conservative liquidation value (see AccountState).
             # This deliberately does not invent an intrabar margin call or a
@@ -207,8 +208,9 @@ class FxBacktestEngine:
                 break
 
         if position is not None and not terminated_early:
+            opened_at = open_bar_index if open_bar_index is not None else len(bars) - 1
             trade = self._close(
-                position, bars[-1], len(bars) - 1 - (open_bar_index or len(bars) - 1), accrued_swap
+                position, bars[-1], len(bars) - 1 - opened_at, accrued_swap
             )
             trades.append(trade)
             balance += trade.net_pnl
