@@ -1,0 +1,594 @@
+FX-FIRST MIGRATION AUDIT
+TradingIA — read-only audit, no code changed, no commits made
+==============================================================
+
+Estado verificado en esta sesión:
+  branch:                master
+  git status:             clean (working tree limpio)
+  full pytest:            725 passed, 0 failed
+  Phase 3 fingerprint:    intacto (5 hashes de archivo idénticos)
+  secrets/sqlite scan:    limpio
+  LIVE:                   deshabilitado
+
+
+1. ESTADO INICIAL DEL REPO
+===========================
+
+Check                          Resultado
+------                          ---------
+Branch                          master
+git status --porcelain          Limpio. Un solo archivo no trackeado:
+                                 tradingIAhandoff (el propio handoff en texto
+                                 plano, no contenido del repo).
+git diff --stat                 Vacío — nada staged ni modificado contra HEAD.
+Full pytest                     725 passed, 0 failed, 2 warnings de
+                                 deprecación no relacionados, 33.5s.
+Phase 3 per-file SHA-256         Los 5 archivos guardados son byte-idénticos
+                                 a cada verificación previa en la historia de
+                                 este proyecto: PHASE3_FORWARD.md,
+                                 src/forward/runner.py,
+                                 src/strategies/breakout_forward.py,
+                                 configs/forward_validation.yaml,
+                                 tests/test_forward_phase3.py.
+Valores semánticos congelados    frozen_start = 2026-09-03T00:00:00Z,
+                                 frozen_variants = los 4 nombres esperados —
+                                 ambos coinciden con EXPECTED_FROZEN_START /
+                                 EXPECTED_FROZEN_VARIANTS hardcodeados en
+                                 phase3_guard.py.
+Build del bridge                 step4-audit-hardened-2026-09-03
+Runtime/secret scan               mt5_bridge.sqlite3 y tradingia.zip existen
+                                 en disco pero están .gitignore-ados y no
+                                 trackeados. Sin .env, sin tokens literales en
+                                 ningún archivo trackeado — todas las cadenas
+                                 con forma de token son fixtures de test o
+                                 placeholders de documentación.
+
+NOTA SOBRE EL HASH DE FINGERPRINT CITADO
+-----------------------------------------
+El hash único 130c9c60265fded8fa71f3d85863cd7b362e640faa8dcd19496815bef4fa35d7
+que circula en handoffs previos NO es algo que phase3_guard.py calcule o
+verifique — el módulo devuelve un dict estructurado con cinco hashes SHA-256
+de archivo independientes más dos valores semánticos; no existe un hash único
+canónico en ningún lugar del código del guard. Los cinco hashes de archivo de
+ese dict son los que se han mantenido byte-idénticos en cada verificación,
+esta sesión y las anteriores. Lo que sea que produjo ese hash de una sola
+línea usó una serialización que este código no reproduce. Vale la pena
+señalarlo explícitamente: si ese hash de una línea está pensado como valor
+de guarda autoritativo hacia adelante, el módulo guard debería ser lo que lo
+calcule, para tener una sola fuente de verdad en vez de dos.
+
+
+2. INVENTARIO DE COMPONENTES CRYPTO
+=====================================
+
+src/research/ — orquestadores de fase (uso solo-crypto, código de apariencia genérica)
+----------------------------------------------------------------------------------------
+Componente                              Propósito                                              Dependientes                          Clasificación
+research/runner.py                      Orquestador Phase 2 — hardcodea universo de candidatos, conecta holdout/monte-carlo/walk-forward  cli/__main__.py                       ARCHIVAR
+research/phase25.py                     Estudio de plateau/robustez de breakout Phase 2.5       cli/__main__.py, test_phase25.py      ARCHIVAR
+research/holdout_eval.py                Holdout final único para 2 candidatos breakout congelados — históricamente consumido, no se puede re-ejecutar de forma significativa  cli/__main__.py, test_final_holdout.py  ARCHIVAR
+research/diagnostics.py                 Runner de diagnósticos post-holdout (default BTCUSDT); su helper enrich_trades es genérico  short_horizon_mae_mfe.py, cli         MIXTO
+research/post_holdout_family_comparison.py  Repite otras familias contra la ventana 2025-2026 ya consumida  cli/__main__.py                       ARCHIVAR
+research/regime_study.py                Investigación de régimen post-hoc Phase 3B; llama assert_phase3_intact(), nunca escribe a Phase 3  cli/__main__.py                       ARCHIVAR
+research/regime_gate_simulation.py      Simulación exploratoria de regime-gate, sin búsqueda de umbral  regime_study.py                       ARCHIVAR
+research/short_horizon_data.py          Registro de dataset Phase 4A — constante de módulo SYMBOL = "BTCUSDT"  short_horizon_study.py                CANDIDATO A ELIMINAR
+research/short_horizon_study.py         Orquestador Phase 4A — estudio de 40 variantes BTCUSDT 15m/1h, fingerprints Phase 3 antes/después  cli/__main__.py                       ARCHIVAR
+research/short_horizon_phase4b.py       Phase 4B — re-ejecuta 14 variantes Phase 4A congeladas para diagnóstico edge-vs-cost  cli/__main__.py                       ARCHIVAR
+
+src/data/ — proveedor solo-crypto
+-----------------------------------
+data/providers.py :: BinancePublicProvider — Cliente REST de Binance (URL, símbolo passthrough, mapa de intervalos, columnas de respuesta específicas de Binance)
+  Dependientes: cli/__main__.py (download-data)
+  Clasificación: ARCHIVAR junto con su único caller / ELIMINAR si ya no se descargan datos
+
+configs/ — YAML hardcodeado a BTCUSDT
+----------------------------------------
+Archivo                                                          Símbolo/alcance             Clasificación
+buy_and_hold.yaml, mean_reversion.yaml, momentum.yaml,
+sma_cross.yaml                                                    BTCUSDT / 1h                 ARCHIVAR
+final_holdout.yaml                                                BTCUSDT / 1h, ligado al holdout 2025-2026 ya consumido  ARCHIVAR
+research_phase2.yaml, research_phase25.yaml                       BTCUSDT / 1h                 ARCHIVAR
+post_holdout_diagnostics.yaml, post_holdout_family_comparison.yaml BTCUSDT / 1h                ARCHIVAR
+short_horizon_phase4a.yaml, short_horizon_phase4b.yaml            BTCUSDT / 15m y 1h            ARCHIVAR
+forward_validation.yaml                                           BTCUSDT / 1h — Y guardado por Phase 3  PHASE3 CONGELADO — NO TOCAR
+
+Docs de raíz — registros de estado de fase
+---------------------------------------------
+Doc                    Líneas    Contenido                                          Clasificación
+PHASE2_STATUS.md         21      Resumen de investigación Phase 2 BTCUSDT           ARCHIVAR
+PHASE25_STATUS.md        28      Resumen de plateau de breakout Phase 2.5           ARCHIVAR
+PHASE4A_STATUS.md        50      Resumen de rechazo de 40 variantes short-horizon   ARCHIVAR
+PHASE4B_STATUS.md         7      Conclusión de diagnóstico edge-vs-cost             ARCHIVAR
+PHASE3_FORWARD.md        23      Declaración de preregistro forward congelado       PHASE3 CONGELADO — NO TOCAR
+
+CLI subcommands — runners de fase solo-crypto
+-------------------------------------------------
+De 13 subcomandos no-mt5-remote en src/cli/__main__.py: download-data, research,
+research25, final-holdout, diagnose-holdout, post-holdout-family-comparison,
+regime-study, short-horizon, short-horizon-diagnose son solo-crypto (9).
+preregister-forward y forward-eval llaman directamente al guardado
+src/forward/runner.py (2). Solo backtest y compare son mecanismo genuinamente
+genérico hoy conectado a configs crypto (2).
+
+
+3. COMPONENTES GENÉRICOS REUTILIZABLES TAL CUAL
+==================================================
+
+Componente                                                          Por qué es genérico                                                              Clasificación
+src/data/loader.py                                                  Cache parquet + slicing por rango de fechas; el patrón de nombre de archivo {SYMBOL}_{timeframe}.parquet funciona sin cambios para EURUSD_1h  CONSERVAR
+src/data/splitter.py                                                Split cronológico train/val/test + slicing de warm-up — aritmética de índices pura, agnóstica de mercado  CONSERVAR
+src/data/validation.py                                              Checks estructurales OHLCV (NaN, timestamps monótonos, relaciones OHLC) — checks de columna/tipo solamente, gaps son configurados por el caller, no hardcodeados  CONSERVAR
+src/data/providers.py :: DataProvider (ABC)                         Solo interfaz — fetch_ohlcv(symbol, timeframe, start, end) es agnóstico de broker por diseño; solo su única implementación es crypto  CONSERVAR
+RESEARCH_RULES.md                                                   Metodología pura (no mirar test, siempre comparar contra buy&hold, desconfiar de <30 trades) — cero contenido específico de mercado  CONSERVAR
+src/research/phase3_guard.py                                        Mecanismo genérico de fingerprinting sha256 + valor semántico; solo su lista de objetivos configurados es específica de Phase 3  CONSERVAR (mecanismo)
+research/annual.py, walk_forward.py, monte_carlo.py,
+block_bootstrap.py, parameter_study.py, stress.py,
+volatility_filter.py, time_of_day.py                                Primitivas estadísticas que operan sobre retornos de trades / curvas de equity / OHLCV — sin símbolo, sin asunción de horario de mercado  CONSERVAR
+src/strategies/base.py, buy_and_hold.py, sma_cross.py,
+momentum.py, mean_reversion.py, breakout.py,
+short_horizon_base.py, short_horizon.py, registry.py                La lógica de estrategia en sí no toma símbolo/timeframe; la restricción long/flat es arquitectónica (ver sección 5), no específica de crypto  CONSERVAR
+src/execution/*, mt5_bridge/*, scripts/tia,
+src/cli/mt5_remote_cli.py                                           Capa de ejecución FX/MT5 — ya es la base objetivo, completamente fuera del alcance de esta pregunta de eliminación  CONSERVAR — fundación
+configs/real_money_policy.yaml, LIVE_TRADING_RULES.md,
+FX_PHASE0_STATUS.md, BROKERS_MT5_OPTIONS.txt,
+CONTINUATION_NOTES.md                                                Documentación y política ya nativas de FX                                        CONSERVAR
+
+
+4. COMPONENTES ACOPLADOS — NECESITAN EXTRACCIÓN
+==================================================
+
+Componente                              Qué es genérico                                          Qué está acoplado                                                     Acción
+src/backtesting/engine.py               Regla anti-lookahead shift-by-one-bar, manejo de warm-up, rastro de auditoría de trades  Máquina de estados long/flat solamente, sizing por notional en cash (sin lotes/contract size/pip value), fee % sin spread bid/ask, sin swap, mercado siempre abierto  Extender BacktestConfig + máquina de estados de posición para agregar SHORT y sizing basado en lotes; conservar el esqueleto causal/de auditoría
+src/metrics/metrics.py                  Fórmulas de Sharpe/Sortino/drawdown/trade-stats, CAGR por tiempo transcurrido  TRADING_PERIODS_PER_YEAR = {"1h": 365*24, ...} asume 24/7/365 — incorrecto para cualquier timeframe FX (~5 días de trading/semana)  Reemplazar el único diccionario por una tabla de periods-per-year consciente del calendario de mercado; fórmulas sin tocar
+src/experiments/config.py, runner.py    Forma del schema YAML, orquestación de split/load/backtest/metrics  Semántica de campos (trading_fee, slippage, position_size_fraction) asume el modelo de costos del motor spot  Reutilizable una vez que el motor tenga un modelo de costos apropiado para FX — sin cambio estructural necesario en este archivo
+src/research/holdout.py                 Split fijo de fecha train/holdout + helper de guarda — mecanismo genérico  Default holdout_start="2025-01-01" es una fecha de este proyecto, no una asunción de mercado  Parametrizar el default, o aceptar que es un override de una línea en cada call site
+src/research/regime_features.py         Descriptores de régimen causales, invariantes a truncamiento — toma cualquier OHLCV  Docstring referencia "1h BTCUSDT del proyecto"; importa breakout_forward solo lectura  Re-documentar como genérico; sin cambio de código necesario
+src/cli/__main__.py                     Dispatcher argparse delgado                                9 de 13 subcomandos no-MT5 conectan directamente a runners de fase solo-crypto  Dividir en dos funciones de registro de subparser (crypto-legado vs core), o eliminar las de crypto según el plan de migración (sección 12)
+
+
+5. EVALUACIÓN DEL MOTOR DE BACKTEST
+======================================
+
+Mapa de dependencias:
+
+BacktestEngine (src/backtesting/engine.py)
+ |- Position          FLAT/LONG solamente — no existe SHORT en ningún lugar del código
+ |- Sizing            fracción de notional en cash — sin lotes, sin contract size, sin pip value
+ |- Modelo de costos   fee % + "slippage" % simétrico — sin spread bid/ask, sin swap/rollover
+ |- Feed de precio     una sola serie OHLCV — sin bid/ask separado
+ |- Calendario         siempre operable — sin modelo de sesión/fin de semana/feriado
+ |- Anti-lookahead     signal(i) -> ejecuta open(i+1), forzado dentro de run(), no se puede saltar
+ |- Manejo de warm-up  evaluation_start fuerza FLAT en el período previo, excluido de la curva de equity
+ `- Dependientes       experiments/runner * forward/runner * metrics * 8+ módulos research/* * 8 archivos de test
+
+Cada asunción que se pidió verificar está presente: long/flat solamente, notional
+en cash en vez de lot/contract size, precio único en vez de bid/ask, fee/slippage
+porcentual en vez de spread, sin swap ni rollover, sin calendario de sesión.
+Ninguna de estas es incidental — son las simplificaciones correctas para un motor
+de crypto spot 24/7, hechas deliberadamente y documentadas en el propio docstring
+del módulo. Son simplemente las simplificaciones equivocadas para FX, donde short
+es una dirección de trade de primera clase, el sizing es lote x contract size x
+pip value, el costo está dominado por el spread (no un % plano), y el swap/rollover
+afecta materialmente cualquier posición mantenida overnight.
+
+RECOMENDACIÓN: OPCIÓN 2
+-------------------------
+Opción 1 — evolucionar in situ: NO RECOMENDADA.
+Agregar short/lotes/spread/swap al motor existente significa que cada uno de sus
+~15 dependientes reales (runners de research, tests) debe re-verificarse contra
+los resultados congelados de Phase 2/2.5/4 para confirmar que el path crypto se
+sigue comportando idénticamente. Superficie de regresión alta para cero beneficio
+FX durante la transición.
+
+Opción 2 — nuevo FXBacktestEngine, retirar el viejo: RECOMENDADA.
+El motor crypto sigue corriendo exactamente igual mientras algún test crypto
+archivado lo necesite (o se congela junto con el archivo y nunca se vuelve a
+correr). Se construye un motor FX nuevo y separado con su propio modelo de
+costos/sizing desde el día uno — sin clase compartida, sin riesgo de que un
+cambio FX altere silenciosamente un número crypto congelado.
+
+Reutilizable en ambos: la regla de shift anti-lookahead, el manejo de
+warm-up/evaluation_start, y la forma de reporte Trade/BacktestResult son
+patrones de diseño agnósticos de mercado que vale la pena copiar (no importar)
+al motor nuevo — copiar, no compartir, es lo que mantiene el comportamiento del
+motor viejo permanentemente congelado para reproducibilidad.
+
+
+6. EVALUACIÓN DE LA CAPA DE DATOS
+====================================
+
+El trío loader/splitter/validator es el caso de reutilización más fuerte de
+todo el repo — genuinamente agnóstico de mercado ya mismo.
+
+El único acoplamiento crypto real es BinancePublicProvider, y está limpiamente
+aislado detrás del ABC DataProvider — agregar un proveedor respaldado por
+historial de MT5 significa escribir una clase nueva, no tocar el loader, cache
+o validador. El schema OHLCV (timestamp, open, high, low, close, volume) tiene
+un hueco semántico real para FX: MT5 reporta tick volume y, separadamente,
+real volume (usualmente cero/no disponible en la mayoría de brokers FX) —
+ninguno de los dos es volumen de trade del activo base como la columna volume
+de Binance. El schema puede técnicamente contener cualquiera de los dos números
+sin cambio de código, pero hacerlo silenciosamente etiquetaría mal lo que
+significa el número. Esto debe ser un renombrado de campo explícito y
+documentado, o una segunda columna (tick_volume) en cualquier módulo de datos
+FX — nunca una sustitución bajo el mismo nombre.
+
+El manejo de gaps es la otra diferencia real: validate_ohlcv(..., allow_gaps=False)
+es el default apropiado para crypto (BTC/USDT opera continuamente); FX cierra
+cada fin de semana y alrededor de feriados mayores, así que cualquier path de
+datos FX debe llamarlo con allow_gaps=True y su propio calendario de sesión, en
+vez de tratar un sábado como un fallo de calidad de datos.
+
+
+7. EVALUACIÓN DE LA INFRAESTRUCTURA DE RESEARCH
+==================================================
+
+Este es el caso de CONSERVAR más fuerte del repo — casi toda primitiva
+estadística acá tiene cero código específico de mercado.
+
+Componente                                                                Disposición
+Patrón de preregistro / spec congelado (mecanismo fingerprint-and-assert
+de phase3_guard.py)                                                       CONSERVAR TAL CUAL
+Prevención de leakage (shift signal(i)->execute(i+1), forzado por el motor)  CONSERVAR TAL CUAL (copiar al motor FX)
+Invariancia a truncamiento (descriptores solo-causales de regime_features.py)  CONSERVAR CON REFACTOR MENOR (re-documentar)
+Generador de ventanas walk-forward                                        CONSERVAR TAL CUAL
+Splits temporales (splitter.py, holdout.py)                              CONSERVAR TAL CUAL / CONSERVAR CON REFACTOR MENOR
+Métricas (Sharpe/Sortino/drawdown/trade stats)                            CONSERVAR CON REFACTOR MENOR (tabla periods-per-year)
+Reproducibilidad de experimentos (hash de config, hash de dataset parquet)  CONSERVAR TAL CUAL
+Monte Carlo / block bootstrap sobre retornos de trades                    CONSERVAR TAL CUAL
+Grillas de parámetros (parameter_study.py)                                CONSERVAR TAL CUAL
+Serialización de resultados (patrón metrics.json, trades.csv)             CONSERVAR TAL CUAL
+Orquestadores específicos de fase (runner.py, phase25.py, holdout_eval.py,
+regime_study.py, short_horizon_*.py)                                      ARCHIVAR
+
+
+8. EVALUACIÓN DE LA SUITE DE TESTS
+=====================================
+
+38 archivos en tests/, clasificados por lo que realmente importan y
+hardcodean, no por nombre de archivo.
+
+Grupo                                Cantidad  Archivos (representativos)                                        Sobrevive la migración?
+Regresión genérica                    ~14      test_engine*, test_metrics*, test_data_validation, test_splitter,
+                                                test_warmup, test_strategies, test_short_horizon_base/
+                                                strategies/costs/mae_mfe, test_block_bootstrap,
+                                                test_regime_features, test_time_of_day,
+                                                test_post_holdout_diagnostics                                      SÍ — tal cual
+Histórico crypto / result-locking     ~10      test_experiments, test_final_holdout, test_phase25,
+                                                test_post_holdout_family_comparison, test_regime_study,
+                                                test_short_horizon_data, test_short_horizon_phase4b,
+                                                test_short_horizon_study                                           ARCHIVAR junto con el código
+Phase 3 congelado                       1      test_forward_phase3.py                                             NUNCA MODIFICAR
+MT5 / ejecución                         5      test_execution_base/policy/safe_execution/quote_freshness,
+                                                test_mt5_remote*, test_journal_cli_patch                           SÍ — fundación
+CLI / infra                             1      test_tia_wrapper.py                                                SÍ
+
+Nota: test_phase3_guard.py testea el mecanismo de fingerprint contra los
+archivos congelados de Phase 3 — debería sobrevivir como test de mecanismo
+genérico incluso después de que los archivos objetivo de Phase 3 se archiven,
+ya que el trabajo del guard (detectar drift en un conjunto de archivos
+especificado) no deja de importar solo porque los archivos que vigila
+actualmente se muevan.
+
+
+9. PROPUESTA DE PRESERVACIÓN HISTÓRICA
+=========================================
+
+Conjunto mínimo de artefactos para mantener Phase 2/2.5/3/4 científicamente
+reproducibles sin mantener el código en el path de ejecución activo.
+
+RECOMENDACIÓN MÍNIMA: código + config + tests, congelados en su lugar, no
+eliminados ni reescritos — movidos (en un paso posterior, no en este) bajo
+una ruta claramente etiquetada. La documentación sola no es suficiente:
+reproducir "Phase 2 breakout 168/60 devolvió -16.15% OOS" científicamente
+requiere poder re-ejecutar el código exacto contra el dataset exacto con su
+hash fijado, no solo leer un número en un archivo de estado. Los datasets
+parquet en sí (data/raw/BTCUSDT_*.parquet) ya están fuera de git (regenerables
+desde los comandos CLI documentados + el hash fijado en el metadata.json de
+cada fase) — ese patrón es correcto y debería continuar; no commitear los
+archivos parquet en sí dentro de una carpeta de archivo.
+
+Concretamente, por cada fase: el módulo orquestador, su(s) config(s) YAML,
+su test de result-locking, y su doc de estado — mantenidos juntos, no
+separados en "docs acá / código allá".
+
+Esto NO es una propuesta para ejecutar ahora — mover archivos está
+explícitamente fuera de alcance de esta auditoría. Es la forma que debería
+tomar el paso de archivo posterior (Migration Step 1, sección 12) una vez
+autorizado.
+
+
+10. IMPACTO EXACTO DE ELIMINAR CRYPTO
+========================================
+
+Respuesta directa: ¿qué perdería realmente TradingIA si se eliminara mañana
+todo lo exclusivamente crypto?
+
+PÉRDIDA FUNCIONAL HOY
+  - Capacidad de descargar OHLCV fresco de Binance (download-data)
+  - Capacidad de re-ejecutar cualquiera de los 9 subcomandos CLI de crypto
+
+PÉRDIDA CIENTÍFICA / HISTÓRICA
+  - Capacidad de re-ejecutar y re-verificar literalmente los resultados
+    numéricos de Phase 2/2.5/4A/4B (mitigado completamente por la propuesta
+    de archivo-en-su-lugar de la sección 9)
+  - Los fixtures crypto específicos en ~10 tests de result-locking
+
+PÉRDIDA POTENCIAL FUTURA
+  - Un motor de backtest listo para usar en mercado 24/7, si TradingIA alguna
+    vez revisita crypto u otro mercado siempre abierto
+  - La implementación Binance de DataProvider como referencia para escribir
+    un segundo proveedor no-MT5 más adelante
+
+NINGUNA PÉRDIDA SIGNIFICATIVA
+  - Cada primitiva estadística/de research de la sección 7 — nada de eso es
+    crypto-acoplado, nada de eso desaparece
+  - Todo el stack de loader/splitter/validador de datos
+  - La lógica de señal real de cada clase de estrategia (reutilizable una vez
+    que existan short/lotes)
+  - Fórmulas de métricas (solo la tabla periods-per-year necesita cambiarse)
+
+CONCLUSIÓN: no hay ninguna estrategia crypto rentable y validada en
+producción hoy (Phase 2-4B concluyeron todas no-rentable-OOS o negativa en
+costos). Eliminar código solo-crypto del path activo cuesta cero capacidad
+de trading en vivo y cero capacidad de research que no esté ya duplicada
+por la capa genérica debajo. La única pérdida real es la capacidad de
+re-ejecutar fases crypto byte por byte — lo cual archivar-en-su-lugar, no
+eliminar, preserva completamente.
+
+
+11. ARQUITECTURA FX-FIRST OBJETIVO
+=====================================
+
+Evolucionada desde la forma real actual del repo, no impuesta desde una
+plantilla.
+
+TradingIA/
+ |- core/                    (mayormente un renombrado/reagrupamiento, no código nuevo)
+ |   |- data/                loader.py, splitter.py, validation.py, DataProvider ABC
+ |   |- research/            annual * monte_carlo * block_bootstrap * walk_forward
+ |   |                       parameter_study * stress * volatility_filter * time_of_day
+ |   |- metrics/             metrics.py (tras el fix de periods-per-year)
+ |   |- reproducibility/     mecanismo de fingerprint de phase3_guard.py, generalizado
+ |   `- reporting/           patrón de persistencia de experiments/runner.py
+ |
+ |- fx/                      (nuevo — Phase 5)
+ |   |- data/                proveedor de historial MT5, schema consciente de tick_volume
+ |   |- backtest/            FXBacktestEngine — short, lotes, spread, swap
+ |   |- strategies/          reutiliza el Strategy ABC de core una vez que soporte SHORT
+ |   `- research/            específico de FX: sesiones, rollover, modelo de spread
+ |
+ |- execution/                (ya existe, sin tocar)
+ |   `- mt5/                  src/execution/*, mt5_bridge/*, scripts/tia
+ |
+ `- archive/                  (nuevo — Migration Step 1)
+     `- crypto/                código + configs + tests + docs de Phase 2/2.5/3/4, congelado
+
+Esto no fuerza un renombrado de directorio de big-bang. src/execution/ y
+mt5_bridge/ ya están exactamente donde necesitan estar — nada ahí se mueve.
+El trabajo estructural principal es reagrupar las piezas ya-genéricas de
+src/data, src/research, src/metrics bajo un namespace core/ (mecánico, bajo
+riesgo, mayormente actualización de import paths) y levantar fx/ como código
+genuinamente nuevo en Phase 5, no una reutilización del motor crypto.
+
+
+12. PLAN DE MIGRACIÓN
+========================
+
+Siete pasos pequeños e independientemente verificables. Ningún paso queda
+autorizado por este informe — cada uno requiere aprobación separada cuando
+llegue su turno.
+
+PASO 1 — Congelar y archivar evidencia crypto
+  Mover (no eliminar, no reescribir) los ~10 módulos orquestadores crypto,
+  sus configs, sus tests de result-locking, y los docs de estado
+  PHASE2/2.5/4A/4B a archive/crypto/. Actualizar import paths solo donde
+  algo fuera del archivo los importe (actualmente: solo cli/__main__.py).
+  Archivos: ~10 módulos research/*, ~9 configs, ~10 tests, 4 docs de estado
+  Riesgo: bajo — relocación pura
+  Tests requeridos: suite completa verde tras el movimiento, tests archivados
+  siguen pasando desde la nueva ruta
+  Rollback: git revert del commit de movimiento
+  Definición de terminado: módulos archivados importables y sus tests pasan
+  desde archive/crypto/; nada fuera del archivo los referencia excepto el
+  wiring del CLI eliminado en el Paso 3
+
+PASO 2 — Extraer componentes genéricos de research a core/
+  Reagrupar src/data, el subconjunto genérico de src/research (lista
+  CONSERVAR de la sección 7), y src/metrics bajo core/. Arreglar acá el
+  acoplamiento de periods-per-year en metrics (agregar la tabla, no quitar
+  el soporte 24/7 — los tests crypto archivados todavía lo necesitan).
+  Archivos: ~9 módulos core de research, data/*, metrics/metrics.py
+  Riesgo: bajo-medio — el cambio de import paths toca cada archivo de test
+  Tests requeridos: suite completa verde, fingerprint de Phase 3 sin cambios
+  Rollback: git revert
+  Definición de terminado: core/ es importable de forma independiente, los
+  tests crypto archivados siguen pasando contra él
+
+PASO 3 — Eliminar el wiring CLI de crypto
+  Eliminar (no archivar — es código de dispatch muerto una vez que el Paso 1
+  mueve sus objetivos) los 9 subcomandos solo-crypto de
+  src/cli/__main__.py. El import de BinancePublicProvider de download-data
+  se mueve al archivo junto con su único caller.
+  Archivos: src/cli/__main__.py
+  Riesgo: bajo — un solo archivo, superficie bien testeada
+  Tests requeridos: salida de ayuda del CLI revisada manualmente; suite
+  completa verde
+  Rollback: git revert
+  Definición de terminado: python -m src.cli --help muestra solo
+  backtest/compare/mt5-remote
+
+PASO 4 — Retirar el BacktestEngine con forma crypto del path activo
+  Mover src/backtesting/engine.py al archivo junto con las estrategias/
+  configs crypto que lo ejercitan (ver sección 5, Opción 2). Las clases
+  genéricas de src/strategies/ y el Strategy ABC se quedan en core/ — solo
+  el motor que las ejecuta se archiva.
+  Archivos: src/backtesting/engine.py, src/experiments/*
+  Riesgo: medio — módulo con mayor fan-in del repo
+  Tests requeridos: suite completa verde desde la nueva ubicación de archivo
+  antes de dar este paso por terminado
+  Rollback: git revert; este paso debería ser su propio commit, aislado de
+  los Pasos 1-3
+  Definición de terminado: nada en core/ o execution/ importa
+  src.backtesting
+
+PASO 5 — Limpiar tests e imports
+  Barrer cualquier import que quede apuntando a los paths viejos de
+  src.research.*/src.backtesting tras los Pasos 1-4; actualizar a core.* o
+  archive.crypto.* según corresponda.
+  Archivos: lo que aparezca en el grep — se espera que sea casi cero si los
+  Pasos 1-4 se hicieron correctamente
+  Riesgo: bajo
+  Tests requeridos: suite completa verde, cero errores de import
+  Rollback: git revert
+  Definición de terminado: grep -r "from src.research\|from
+  src.backtesting" fuera de archive/ no devuelve nada
+
+PASO 6 — Establecer el baseline FX-first
+  Definir y exigir las condiciones de la sección 14 como la nueva barra
+  "verde". Esto es un commit de checkpoint + un doc de baseline corto, no
+  código de feature nuevo.
+  Archivos: nuevo BASELINE.md o equivalente
+  Riesgo: ninguno — documentación
+  Tests requeridos: el checklist completo de la sección 14, una vez
+  Rollback: n/a
+  Definición de terminado: el checklist de la sección 14 está todo verde y
+  registrado
+
+PASO 7 — Comenzar Phase 5A — ingesta de datos FX
+  Primer código FX genuinamente nuevo: un DataProvider respaldado por
+  historial de MT5, decisión de schema consciente de tick volume,
+  calendario de sesión/gaps. Fuera de alcance de este informe — señalado
+  acá solo como el paso siguiente natural una vez que los Pasos 1-6
+  aterricen.
+  Riesgo: n/a — trabajo futuro, autorización separada
+
+
+13. ANÁLISIS DE RIESGO
+=========================
+
+Riesgo                                              Dónde                Mitigación
+Un resultado crypto congelado cambia silenciosamente
+porque un módulo "genérico" extraído a core/ en
+realidad no era libre de efectos secundarios         Paso 2               Correr los tests de result-locking crypto
+                                                                          archivados contra la nueva ubicación de core/
+                                                                          antes de dar el Paso 2 por terminado — no
+                                                                          solo los tests genéricos
+El fingerprint de Phase 3 se rompe durante algún
+movimiento de archivo                                 Pasos 1, 2, 4        Los 5 archivos guardados de Phase 3 nunca se
+                                                                          mueven en este plan — confirmar vía chequeo
+                                                                          de fingerprint tras cada paso individual, no
+                                                                          solo al final
+Un import path fuera de este repo (ej. un notebook
+guardado, un script externo) se rompe                 Pasos 3-5            El grep es tan bueno como lo que está
+                                                                          trackeado en git — preguntarle al usuario si
+                                                                          algo fuera del repo depende de estos import
+                                                                          paths antes del Paso 3
+Eliminar el wiring del CLI quita el único punto de
+entrada alcanzable a un fixture de test que lo
+importa indirectamente                                Paso 3               Suite completa verde es la prueba real, no
+                                                                          la inspección visual del diff
+Los tests archivados se pudren silenciosamente
+(nadie los corre, empiezan a fallar sin que nadie
+lo note)                                              Post-migración       Mantener los tests archivados en el path de
+                                                                          colección default de pytest en vez de
+                                                                          excluirlos — deberían seguir corriendo y
+                                                                          pasando en cada corrida de CI/local, solo
+                                                                          nunca editarse
+
+
+14. NUEVO BASELINE PROPUESTO
+===============================
+
+Qué debería significar "verde" una vez que crypto ya no es una dependencia
+activa — y específicamente, qué NO debería continuar sin cambios.
+
+SOBRE EL FINGERPRINT DE PHASE 3 COMO GATE CONTINUO
+-----------------------------------------------------
+Una vez que los cinco archivos de Phase 3 se muevan a archive/crypto/,
+exigir que cada commit futuro re-verifique su fingerprint deja de tener
+sentido como gate BLOQUEANTE de CI — nada en el desarrollo FX activo va a
+volver a tocar esas rutas por construcción (no son importadas por nada fuera
+del archivo). La política mejor: mantener el mecanismo de phase3_guard.py
+como un chequeo de integridad permanente, corrido periódicamente (parte de
+la suite de tests archivada en sí, corrida en cada invocación completa de
+pytest) en vez de un gate que cada commit FX no relacionado deba pasar
+explícitamente. El trabajo real del guard — probar que nada tocó estos
+archivos — no necesita ser re-litigado por commits que estructuralmente no
+pueden tocarlos.
+
+Condición                          Requisito
+Tests core                          Todos los tests genéricos de
+                                     data/research/metrics en verde,
+                                     corridos desde core/
+Tests crypto archivados              Siguen en verde, siguen siendo
+                                     recolectados por pytest default, nunca
+                                     editados
+Tests de ejecución MT5                Sin cambios, siguen en verde — el
+                                     comportamiento de Step 4/4.1 no debe
+                                     regresionar
+Guard de Phase 3                     Pasa como parte de la suite archivada;
+                                     ya no es un gate bloqueante separado en
+                                     commits solo-FX
+Secretos                              Sin .env, sin token literal, sin
+                                     .sqlite3 commiteado — política sin
+                                     cambios
+Base de datos runtime                 mt5_bridge.sqlite3 se queda
+                                     local/gitignored — política sin
+                                     cambios
+Estado de git                         Working tree limpio, sin escombros de
+                                     migración sin commitear
+LIVE                                  Se mantiene deshabilitado — no afectado
+                                     por esta migración en absoluto
+Ejecución DEMO                        Sin cambios — el path validado de
+                                     HFM Demo del Step 4/4.1 sin tocar por
+                                     ningún paso de la sección 12
+Evidencia archivada                   Cada módulo archivado importable y
+                                     ejecutable desde su nueva ruta,
+                                     produciendo números byte-idénticos a su
+                                     última corrida conocida-buena
+
+
+15. RECOMENDACIÓN
+====================
+
+Una línea por bloque principal. Este es el resumen para actuar; todo lo de
+arriba es la evidencia que lo respalda.
+
+Bloque                                                             Recomendación   Por qué
+Capa de ejecución MT5/FX (src/execution, mt5_bridge,
+CLI wrapper)                                                        CONSERVAR ACTIVO  Ya es la fundación FX-first, validada
+                                                                                    end-to-end
+Loader / splitter / validador de datos                              CONSERVAR ACTIVO  Genuinamente agnóstico de mercado, cero
+                                                                                    asunción crypto
+Primitivas de research estadístico (walk-forward, bootstrap,
+grillas de parámetros, mecanismo de preregistro)                    CONSERVAR ACTIVO  Sin acoplamiento crypto en el código;
+                                                                                    reutilizable para FX sin cambios
+Módulo de métricas                                                  REFACTORIZAR    Un diccionario (periods-per-year) está
+                                                                                    mal para FX; todo lo demás está bien
+Clase base de estrategia + estrategias genéricas                    REFACTORIZAR    Agregar SHORT a nivel de la clase base;
+                                                                                    la lógica de señal en sí es reutilizable
+Motor de backtest (con forma crypto)                                ARCHIVAR        Correcto para crypto spot,
+                                                                                    estructuralmente incorrecto para FX —
+                                                                                    construir nuevo, no retrofit
+Orquestadores de fase crypto (módulos research/* de
+Phase 2/2.5/4A/4B)                                                  ARCHIVAR        Ninguna estrategia rentable resultó; solo
+                                                                                    valor histórico
+Configs solo-crypto, docs de estado de fase                         ARCHIVAR        Registro de reproducibilidad para el
+                                                                                    código archivado arriba
+Proveedor Binance + CLI download-data                               ARCHIVAR        Solo usado por orquestadores archivados;
+                                                                                    conservar por reproducibilidad, no uso
+                                                                                    activo
+Preregistro forward de Phase 3 (los 5 archivos guardados)           NUNCA TOCAR     Preregistro congelado; archivar-en-su-
+                                                                                    lugar como máximo, cambios de contenido
+                                                                                    prohibidos
+
+No se modificó, movió ni eliminó ningún archivo para producir este informe.
+Cada clasificación de arriba está fundamentada en un trace real de
+import/grep, no en una suposición por nombre de archivo. El plan de
+migración de la sección 12 está secuenciado para que cada paso sea
+independientemente reversible e independientemente testeado — nada de esto
+debería correrse como un solo lote.
+
+--
+tradingia · auditoría de migración fx · solo lectura · sin commits realizados

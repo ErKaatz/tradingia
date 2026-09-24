@@ -278,7 +278,13 @@ def create_app(backend: MT5Backend, config: BridgeConfig, store: BridgeStore | N
     @app.get("/v1/quotes/{symbol}")
     def get_quote(symbol: str, authorization: str | None = Header(default=None)):
         _authenticate(authorization)
-        tick = backend.symbol_info_tick(symbol)
+        try:
+            tick = backend.symbol_info_tick(symbol)
+        except MT5BackendError as exc:
+            # A stale/off-market tick can fail clock normalization.  That is
+            # an upstream MT5 availability condition, not an application bug
+            # and must retain the bridge's safe 502 error envelope.
+            raise BackendUnavailableError(str(exc)) from exc
         if tick is None:
             raise NotFoundError(f"no tick available for symbol {symbol!r}")
         if tick.bid <= 0 or tick.ask <= 0:
@@ -295,7 +301,10 @@ def create_app(backend: MT5Backend, config: BridgeConfig, store: BridgeStore | N
 
         _authenticate(authorization)
         bridge_now = datetime.now(timezone.utc)
-        tick = backend.symbol_info_tick(symbol)
+        try:
+            tick = backend.symbol_info_tick(symbol)
+        except MT5BackendError as exc:
+            raise BackendUnavailableError(str(exc)) from exc
         server_clock_offset_seconds = backend.server_clock_offset_seconds()
         if tick is None:
             return time_diagnostics_response(

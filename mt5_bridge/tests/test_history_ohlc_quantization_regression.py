@@ -60,7 +60,7 @@ def _make_mt5_stub(open_value: float, high: float, low: float, close: float):
     stub.TIMEFRAME_H1 = 16
 
     rates = np.zeros(1, dtype=_RATES_DTYPE)
-    rates[0]["time"] = 1756800000
+    rates[0]["time"] = int(datetime(2026, 9, 3, tzinfo=timezone.utc).timestamp())
     rates[0]["open"] = open_value
     rates[0]["high"] = high
     rates[0]["low"] = low
@@ -154,6 +154,24 @@ def test_real_backend_copy_rates_range_cleans_all_ohlc_fields_not_just_open():
     for field_value in (bar.open, bar.high, bar.low, bar.close):
         assert isinstance(field_value, Decimal)
         assert len(str(field_value).split(".")[-1]) <= 5  # no more than `digits` decimal places
+
+
+def test_real_backend_copy_rates_range_filters_mt5_bars_outside_requested_interval():
+    """The bridge, not MT5, enforces its advertised inclusive range."""
+    stub = _make_mt5_stub(open_value=1.1, high=1.101, low=1.099, close=1.1005)
+    rates = np.zeros(2, dtype=_RATES_DTYPE)
+    rates[0] = stub.copy_rates_range.return_value[0]
+    rates[1] = stub.copy_rates_range.return_value[0]
+    rates[1]["time"] = int(datetime(2022, 8, 24, tzinfo=timezone.utc).timestamp())
+    stub.copy_rates_range.return_value = rates
+    backend = _real_backend_with_stub(stub)
+
+    bars = backend.copy_rates_range(
+        "EURUSD", "M15", datetime(2026, 9, 3, tzinfo=timezone.utc), datetime(2026, 9, 3, 1, tzinfo=timezone.utc)
+    )
+
+    assert len(bars) == 1
+    assert bars[0].time_utc == datetime(2026, 9, 3, tzinfo=timezone.utc)
 
 
 # --- 2. history_response JSON carries the clean string ---

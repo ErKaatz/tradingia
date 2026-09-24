@@ -1,0 +1,706 @@
+# TradingIA — Handoff maestro
+Fecha: 2026-09-03
+
+## 1. Regla principal
+
+El ZIP/repo actual es la FUENTE DE VERDAD.
+
+No asumir estados anteriores si contradicen el código actual.
+No reabrir bugs ya resueltos salvo evidencia real.
+No ejecutar órdenes sin aprobación explícita.
+LIVE sigue deshabilitado.
+
+---
+
+## 2. Qué es TradingIA
+
+TradingIA es un laboratorio cuantitativo y sistema de ejecución de trading en Python.
+
+Principios:
+
+- backtesting causal
+- costes realistas
+- holdout / forward
+- evitar overfitting
+- fail-closed
+- demo primero
+- ejecución desacoplada de research
+- no martingale
+- no averaging down
+- no grids de recuperación
+- no aumento automático de size
+- max 1 posición simultánea en Phase0
+- broker minimum volume only
+
+No existe estrategia rentable validada actualmente.
+
+---
+
+## 3. Estado crypto
+
+### Phase 2 / 2.5
+
+BTCUSDT 1h.
+
+Research:
+2018–2024.
+
+Holdout:
+2025-01-01 → 2026-09-02.
+
+Mejores breakout:
+- 168/60
+- 168/72
+
+Resultados holdout aproximados:
+
+168/60:
+- return -16.15%
+- DD -38.24%
+- Sharpe -0.37
+
+168/72:
+- return -11.85%
+- DD -39.23%
+- Sharpe -0.21
+
+B&H:
+~ -18.4%
+
+Conclusión:
+NO rentable OOS.
+
+### Phase 3
+
+Forward congelado desde:
+
+2026-09-03 00:00 UTC
+
+Configs congeladas:
+
+1. baseline_168_60
+2. baseline_168_72
+3. confirmed24_168_60
+4. adaptive_vol_168_60
+
+Preregistration/fingerprint histórico:
+
+130c9c60265fded8fa71f3d85863cd7b362e640faa8dcd19496815bef4fa35d7
+
+NO TOCAR PHASE 3.
+
+### Phase 4A
+
+40 variantes BTC 15m/1h.
+
+Todas REJECTED bajo costes.
+
+### Phase 4B
+
+Mejor gross:
+RangeExpansion 1h.
+
+Pero los costes destruyen el edge.
+
+No hay estrategia aprobada.
+
+---
+
+## 4. Dirección actual: FX / MT5
+
+Se decidió explorar FX.
+
+Plataforma:
+MetaTrader 5.
+
+Cuenta actual:
+
+HFM Demo Premium MT5
+
+- USD
+- leverage 1:1000
+- balance inicial: $100 virtual
+- balance actual tras prueba: $99.61
+- DEMO ONLY
+
+Futura prueba real:
+máximo inicial USD 10, pero NO está activa.
+
+---
+
+## 5. Arquitectura actual
+
+Linux Mint:
+TradingIA repo
+
+↓ HTTP LAN
+
+Windows VM VirtualBox:
+mt5_bridge FastAPI
+
+↓
+
+MetaTrader5 Python package
+
+↓
+
+MT5 terminal
+
+↓
+
+HFM Demo
+
+Solo `mt5_bridge/` se copia a Windows.
+
+No compartir repo entero.
+
+Secrets:
+
+Windows:
+MT5_BRIDGE_TOKEN
+
+Linux:
+MT5_REMOTE_TOKEN
+MT5_REMOTE_URL
+
+Nunca imprimir tokens.
+
+---
+
+## 6. CLI normal
+
+Existe comando global:
+
+tia mt5 ...
+
+Wrapper:
+
+scripts/tia
+
+Config:
+
+~/.config/tradingia/mt5.env
+
+Permisos:
+
+600
+
+Comandos importantes:
+
+tia mt5 status
+tia mt5 preflight EURUSD
+tia mt5 positions
+tia mt5 reconcile
+tia mt5 time-diagnostics EURUSD
+tia mt5 journal
+tia mt5 journal --limit 50
+tia mt5 kill-status
+tia mt5 kill-activate
+tia mt5 kill-deactivate
+
+Operaciones DEMO manuales:
+
+tia mt5 demo-open EURUSD buy --confirm-demo-order
+
+tia mt5 demo-close <position_id>
+
+Resolución excepcional:
+
+tia mt5 resolve-received <client_order_id> --confirm-abort-before-submission
+
+---
+
+## 7. Execution policy
+
+Phase0:
+
+- DEMO only
+- live disabled
+- environment must be DEMO
+- account trade_mode DEMO
+- reconciliation OK
+- kill switch inactive para entradas
+- max 1 posición
+- requested volume == broker volume_min
+- metadata completa
+- quote fresca
+- terminal conectado
+- trading habilitado
+
+Fail closed.
+
+Close/reduce sigue permitido con kill switch activo si identidad y reconciliación son seguras.
+
+---
+
+## 8. Idempotencia
+
+Persistente en SQLite del bridge Windows.
+
+Clave:
+
+client_order_id
+
+Mismo ID + mismo request:
+replay.
+
+Mismo ID + request diferente:
+409 conflict.
+
+Estados incluyen:
+
+RECEIVED
+SUBMITTED
+FILLED
+REJECTED
+
+Si bridge cae después de order_send pero antes de guardar resultado:
+NO reintento ciego.
+
+Reconciliation bloquea nuevas entradas.
+
+---
+
+## 9. Reconciliation
+
+Persistente.
+
+Estados:
+
+OK
+MISMATCH
+UNKNOWN
+
+Mismatch/unknown:
+bloquea nuevas entradas.
+
+No destructive auto-fix.
+
+Existe resolución manual limitada para RECEIVED:
+
+resolve-received
+
+Nunca resuelve SUBMITTED automáticamente.
+
+---
+
+## 10. Kill switch
+
+Persistente.
+
+ACTIVE:
+
+bloquea:
+- OPEN
+- INCREASE
+
+permite:
+- CLOSE
+- REDUCE
+
+---
+
+## 11. Bug importante ya resuelto: reloj MT5/HFM
+
+Problema real:
+
+tick.time de HFM aparecía ~+3h respecto a UTC.
+
+Diagnóstico real:
+
+Linux ↔ Windows:
+~0.08s
+
+MT5 tick:
+~+10800s
+
+Se implementó:
+
+mt5_bridge/server_clock.py
+
+Auto-calibración dinámica.
+
+NO hardcodear +2/+3.
+
+Validación real después del fix:
+
+server_clock_offset_seconds: 10800.0
+tick_bridge_skew_seconds: ~ -1s
+quote age: ~1s
+
+Correcto.
+
+No reabrir este bug salvo regresión real.
+
+---
+
+## 12. Quote freshness
+
+Helpers:
+
+mt5_bridge/quote_freshness.py
+src/execution/quote_freshness.py
+
+Validan:
+
+- timestamp aware
+- stale
+- future skew
+- fail closed
+
+Preflight y ejecución comparten la misma semántica.
+
+Bridge valida independientemente con su propio reloj.
+
+---
+
+## 13. AutoTrading MT5
+
+Se detectó un intento real rechazado con:
+
+retcode=10027
+AutoTrading disabled by client
+
+Se corrigió el preflight.
+
+Ahora `tia mt5 status` muestra:
+
+terminal_trade_allowed
+account_trade_allowed
+account_trade_expert
+
+Validación real:
+
+terminal_trade_allowed: True
+account_trade_allowed: True
+account_trade_expert: True
+
+TradingIA NO debe activar Algo Trading automáticamente.
+
+---
+
+## 14. Primera operación DEMO real exitosa
+
+Apertura:
+
+EURUSD BUY
+volume 0.01
+
+client_order_id:
+
+11d86cb3-7a5d-4cd4-921f-3bbc213d0604
+
+Resultado:
+
+status=filled
+position_id=1315473417
+fill_price=1.16269
+slippage=0.00002
+
+Luego:
+
+tia mt5 positions
+
+confirmó:
+
+EURUSD
+buy
+0.01
+open_price=1.16269
+
+Cierre:
+
+client_order_id:
+
+486b078f-6158-420c-8fe7-4f1f690e981b
+
+Resultado:
+
+status=filled
+fill_price=1.16230
+slippage=0.00001
+
+Final:
+
+(no open positions)
+reconciliation: ok
+kill_switch: inactive
+
+Balance:
+
+100.00 → 99.61
+
+La pérdida de ~$0.39 coincide con:
+
+1.16269 → 1.16230
+= -3.9 pips
+≈ -$0.39 en 0.01 lot EURUSD.
+
+Esto valida REALMENTE:
+
+Linux
+→ policy
+→ client
+→ HTTP
+→ Windows bridge
+→ MT5
+→ broker demo
+→ order_check
+→ order_send
+→ fill
+→ position
+→ close
+→ fill
+→ zero positions
+→ reconciliation OK
+
+---
+
+## 15. Build actual del bridge
+
+Build esperado:
+
+step4-audit-hardened-2026-09-03
+
+Último status real:
+
+bridge_alive: True
+terminal_connected: True
+terminal_trade_allowed: True
+api_version: 1
+bridge_version: 1
+bridge_build: step4-audit-hardened-2026-09-03
+account_trade_mode: demo
+account_trade_allowed: True
+account_trade_expert: True
+account_balance: 99.61
+kill_switch: inactive
+reconciliation: ok
+
+---
+
+## 16. Journal
+
+CLI:
+
+tia mt5 journal
+
+El journal registra:
+
+- place_order.begin
+- order_check
+- submitting
+- rejected
+- filled
+- close_position.begin
+- close_position.order_check
+- close_position.submitting
+- close_position.filled
+- reconciliation events
+
+Step 4.1 añadió audit hardening:
+
+- request_id propagado
+- quote timestamp
+- bid
+- ask
+- spread
+- reference price
+- volume
+- fill
+- slippage
+- mt5 retcode
+- broker/deal/position IDs
+
+No secretos.
+
+---
+
+## 17. Estado actual de Step 4
+
+Step 4:
+DEMO EXECUTION END-TO-END VALIDATED
+
+Step 4.1:
+AUDIT HARDENING IMPLEMENTED
+
+No hay posiciones abiertas.
+
+Reconciliation:
+OK
+
+Kill switch:
+inactive
+
+Live:
+DISABLED
+
+No hace falta abrir otra operación demo solo para volver a probar infraestructura.
+
+---
+
+## 18. Tests
+
+Históricamente se vieron suites completas como:
+
+614/614
+634/634
+684/684
+
+Después se añadieron más tests.
+
+En el entorno de ChatGPT hubo corridas amplias de:
+
+657+
+671+
+677+
+707+
+715+
+
+Los tests no ejecutables ahí dependían de pyarrow/fastparquet.
+
+En el entorno local del usuario se debe correr full pytest con todas las deps.
+
+---
+
+## 19. Seguridad / archivos
+
+Nunca incluir en ZIP/repo:
+
+*.sqlite3
+*.env
+tokens
+passwords
+
+Hubo anteriormente un archivo accidental:
+
+token mt5 bridge.txt
+
+Ya eliminado.
+
+También apareció un:
+
+mt5_bridge.sqlite3
+
+en un ZIP.
+
+No repetir.
+
+Antes de commit:
+
+git status
+git diff --stat
+secret scan
+Phase3 fingerprint
+full pytest
+
+---
+
+## 20. Qué NO hacer
+
+NO:
+
+- live trading
+- dinero real
+- estrategia automática conectada a execution
+- scheduler automático de órdenes
+- martingale
+- averaging down
+- grids
+- tocar Phase3
+- optimizar sobre fills demo
+- consumir nuevos holdouts sin preregistro
+- borrar SQLite manualmente
+- editar idempotency rows a mano
+- abrir otra orden solo “porque sí”
+- activar Algo Trading por código
+
+---
+
+## 21. Próxima fase recomendada
+
+Phase 5 FX.
+
+Antes de estrategias:
+
+1. data ingestion
+2. timezone normalization
+3. spread model
+4. commissions
+5. swap/rollover
+6. sesiones
+7. gaps
+8. contract size
+9. tick value
+10. min lot
+11. execution assumptions
+
+Después:
+
+Phase 5A:
+FX data ingestion + normalization
+
+Phase 5B:
+cost/spread model
+
+Phase 5C:
+baseline strategies
+
+Phase 5D:
+walk-forward / robustness
+
+Phase 5E:
+demo signal-only monitoring
+
+Phase 5F:
+demo automated execution solo si research supera criterios
+
+---
+
+## 22. Primera tarea en chat nuevo
+
+Antes de modificar código:
+
+1. inspeccionar ZIP/repo actual
+2. leer:
+   - FX_PHASE0_STATUS.md
+   - LIVE_TRADING_RULES.md
+   - CONTINUATION_NOTES.md
+   - RESEARCH_RULES.md
+   - PHASE3_FORWARD.md
+3. git status
+4. git diff --stat
+5. full pytest
+6. Phase3 fingerprint
+7. confirmar bridge build
+8. revisar secrets/sqlite
+9. decidir si corresponde checkpoint commit
+10. proponer plan Phase 5
+
+No escribir estrategia todavía.
+
+---
+
+## 23. Mensaje sugerido para iniciar el chat nuevo
+
+Este ZIP es el estado actual y la fuente de verdad de TradingIA.
+
+Lee primero TRADINGIA_HANDOFF_2026-09-03.md y los documentos de estado del repo.
+
+No asumas estados anteriores.
+
+Antes de cambiar código:
+- audita repo
+- git status
+- diff
+- full pytest
+- Phase3 fingerprint
+- secret/sqlite check
+
+Step 4 de ejecución DEMO ya está validado end-to-end contra HFM Demo.
+
+El próximo objetivo es cerrar cualquier checkpoint pendiente y diseñar Phase 5 FX.
+
+No ejecutar órdenes.
+No habilitar live.
+No tocar Phase3.

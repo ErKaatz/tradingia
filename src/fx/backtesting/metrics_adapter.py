@@ -32,9 +32,14 @@ def to_neutral_backtest_result(fx_result: FxBacktestResult) -> BacktestResult:
     """
     trades = [_to_neutral_trade(t) for t in fx_result.trades]
 
+    side_to_position = {
+        PositionSide.LONG: 1,
+        PositionSide.SHORT: -1,
+        PositionSide.FLAT: 0,
+    }
     equity_records = [
-        {"timestamp": ts, "equity": float(equity), "position": 0}
-        for ts, equity in fx_result.equity_curve
+        {"timestamp": ts, "equity": float(equity), "position": side_to_position[side]}
+        for ts, equity, side in fx_result.equity_curve
     ]
     equity_curve = pd.DataFrame(equity_records, columns=["timestamp", "equity", "position"])
 

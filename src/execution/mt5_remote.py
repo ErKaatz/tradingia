@@ -472,6 +472,13 @@ def _parse_symbol_metadata(payload: dict[str, Any], requested_symbol: str) -> Sy
     currency_base = payload.get("currency_base")
     currency_profit = payload.get("currency_profit")
     currency_margin = payload.get("currency_margin")
+    swap_long = _parse_optional_decimal(payload.get("swap_long"), "symbol_metadata.swap_long")
+    swap_short = _parse_optional_decimal(payload.get("swap_short"), "symbol_metadata.swap_short")
+    swap_mode = payload.get("swap_mode")
+    swap_rollover3days = payload.get("swap_rollover3days")
+    for name, value in [("swap_mode", swap_mode), ("swap_rollover3days", swap_rollover3days)]:
+        if value is not None and (not isinstance(value, int) or isinstance(value, bool)):
+            raise ExecutionProtocolError(f"symbol_metadata.{name} must be an integer if present")
     for name, value in [
         ("currency_base", currency_base),
         ("currency_profit", currency_profit),
@@ -492,6 +499,10 @@ def _parse_symbol_metadata(payload: dict[str, Any], requested_symbol: str) -> Sy
         currency_base=currency_base,
         currency_profit=currency_profit,
         currency_margin=currency_margin,
+        swap_long=swap_long,
+        swap_short=swap_short,
+        swap_mode=swap_mode,
+        swap_rollover3days=swap_rollover3days,
     )
 
 

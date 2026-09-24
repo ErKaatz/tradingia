@@ -17,6 +17,7 @@ import pandas as pd
 
 from src.cli.fx_cli import add_fx_subparser
 from src.cli.mt5_remote_cli import add_mt5_remote_subparser
+from src.cli.runtime_cli import add_runtime_subparser
 
 
 def cmd_compare(args: argparse.Namespace) -> None:
@@ -67,6 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_compare.set_defaults(func=cmd_compare)
 
     add_mt5_remote_subparser(subparsers)
+    add_runtime_subparser(subparsers)
     add_fx_subparser(subparsers)
 
     return parser

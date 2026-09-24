@@ -155,6 +155,22 @@ tia mt5 demo-open EURUSD buy --confirm-demo-order
 tia mt5 demo-close <position_id>
 ```
 
+## Operational no-trade runtime
+
+Phase 5 research is closed with zero candidates.  The operational runtime is
+therefore an observer: it runs bridge/account/quote/reconciliation checks,
+journals a structured `NO_ACTION` decision, and owns no order-placement
+capability.  Start with:
+
+```bash
+./scripts/tia runtime doctor
+./scripts/tia runtime dry-run
+./scripts/tia runtime start
+```
+
+See [`OPERATIONS.md`](OPERATIONS.md) for startup, recovery, shutdown, and the
+current `strategy = NONE` / DEMO = NONE / LIVE = NONE contract.
+
 ## Comparing experiment result folders
 
 ```bash

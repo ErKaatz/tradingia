@@ -137,19 +137,28 @@ existed before this phase. Added (this phase, code-complete):
 - Unit tests: `mt5_bridge/tests/test_profit_calc.py` (6 tests, FakeMT5Backend),
   `tests/test_mt5_remote.py` (4 tests, fake transport) — all passing.
 
-**NOT YET VALIDATED against the real bridge.** `mt5_bridge/` is
-deployed to the Windows VM by manual copy (see
-`FX_PHASE0_STATUS.md`/README) — the VM's currently-running bridge
-predates this endpoint. An empirical attempt in this session against
-the real, reachable bridge (`tia mt5 status` confirmed
-`bridge_alive=True`) returned `HTTP 404` for `/v1/profit-calc/EURUSD`,
-exactly as expected for an undeployed endpoint — this was not
-fabricated as a pass. The comparison test
-(`tests/fx/test_profit_calc_integration.py`, marked `requires_real_mt5`,
-4 parametrized LONG/SHORT gain/loss scenarios) is written and ready; it
-requires the updated `mt5_bridge/` to be copied to the VM and the
-bridge restarted before it can run for real. **This is the one item
-Phase 5B leaves for a deploy-and-rerun step, not a design gap.**
+**VALIDATED against the real bridge (2026-09-05 UTC).** The updated
+`mt5_bridge/` was deployed to the Windows VM, with the previous package
+preserved as `mt5_bridge.pre-5685f46-20260905`; its security SQLite store
+was left untouched. The restarted bridge reported `bridge_alive=true`,
+`terminal_connected=true`, HFM DEMO, and the expected
+`step4-audit-hardened-2026-09-03` build.
+
+Four authenticated, read-only calls to MT5's `order_calc_profit()` for
+EURUSD, 0.01 lots, matched `compute_gross_pnl` exactly:
+
+| Side | Open -> close | MT5 oracle PnL (USD) | Local PnL (USD) |
+|---|---|---:|---:|
+| BUY | 1.10000 -> 1.10500 | +5.0 | +5.0 |
+| BUY | 1.10000 -> 1.09500 | -5.0 | -5.0 |
+| SELL | 1.10000 -> 1.09500 | +5.0 | +5.0 |
+| SELL | 1.10000 -> 1.10500 | -5.0 | -5.0 |
+
+The requests were issued directly over SSH on the VM so the bridge token
+never had to be copied to Linux. They call only `GET /v1/profit-calc/...`
+and create no order, deal, or position. Immediately after the checks,
+`GET /v1/positions` and `GET /v1/orders` were empty and reconciliation
+reported `ok`.
 
 ## Spread cost accounting (Section 12)
 
@@ -262,12 +271,10 @@ tests/fx/test_profit_calc_integration.py -- 4 tests, requires_real_mt5, currentl
    re-verified here, no new claim made.
 2. **Historical OHLC price-side semantics**: VERIFIED (documented), see
    above — not re-derived empirically at tick level in this phase.
-3. **`order_calc_profit` oracle**: endpoint built, unit-tested; **real
-   comparison pending bridge redeploy** (see above) — explicitly not
-   fabricated.
-4. **Deterministic PnL examples**: 4 LONG/SHORT gain/loss scenarios are
-   written and parametrized in `test_profit_calc_integration.py`, ready
-   to run the moment the bridge is redeployed.
+3. **`order_calc_profit` oracle**: endpoint built, unit-tested, deployed,
+   and compared read-only with real MT5 (see above).
+4. **Deterministic PnL examples**: all four LONG/SHORT gain/loss scenarios
+   matched the local EURUSD/USD-account formula exactly (see above).
 
 No order was placed at any point during this investigation.
 
@@ -297,9 +304,6 @@ pytest -q -k "mt5 or execution or fx" : 530 passed, 8 skipped, 136 deselected
   explicitly unsupported (fails loudly), not implemented.
 - No real HFM swap rate is known; `FixedSwapModel`/`RolloverSchedule`
   are a correctness-tested interface, not a broker-calibrated model.
-- The MT5 `order_calc_profit` oracle comparison requires deploying the
-  updated `mt5_bridge/` package to the Windows VM and restarting the
-  bridge — not yet done as of this commit.
 - No FXBacktestEngine-level walk-forward/optimization/strategy work was
   done or is implied by this phase — explicitly out of scope.
 
@@ -315,5 +319,5 @@ test suite described above. No push.
 ## Next phase
 
 ```
-Phase 5C — not started, not designed here.
+PHASE 5B CLOSED — READY FOR PHASE 5C DESIGN
 ```

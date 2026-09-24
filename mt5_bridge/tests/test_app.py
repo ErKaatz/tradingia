@@ -22,6 +22,7 @@ from mt5_bridge.backend import (
     BackendTerminalInfo,
     BackendTick,
     FakeMT5Backend,
+    MT5BackendError,
 )
 from mt5_bridge.config import BridgeConfig
 
@@ -814,6 +815,18 @@ def test_time_diagnostics_endpoint_no_tick_available():
     body = resp.json()
     assert body["mt5_tick_time_utc"] is None
     assert body["quote_age_seconds"] is None
+
+
+def test_quote_and_time_diagnostics_map_backend_failure_to_502():
+    class UnavailableTickBackend(FakeMT5Backend):
+        def symbol_info_tick(self, symbol):
+            raise MT5BackendError("simulated unavailable tick")
+
+    client = _client(backend=UnavailableTickBackend())
+    for path in ("/v1/quotes/EURUSD", "/v1/time-diagnostics/EURUSD"):
+        response = client.get(path, headers=_auth_headers())
+        assert response.status_code == 502
+        assert response.json()["error"]["code"] == "backend_unavailable"
 
 
 def test_time_diagnostics_endpoint_requires_auth():

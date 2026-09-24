@@ -161,6 +161,10 @@ class SymbolMetadata:
     currency_base: str | None = None
     currency_profit: str | None = None
     currency_margin: str | None = None
+    swap_long: Decimal | None = None
+    swap_short: Decimal | None = None
+    swap_mode: int | None = None
+    swap_rollover3days: int | None = None
 
 
 @dataclass(frozen=True)

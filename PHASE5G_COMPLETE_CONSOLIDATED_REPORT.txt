@@ -1,0 +1,245 @@
+TRADINGIA — PHASE 5G CONSOLIDATED REPORT
+Generated: 2026-09-07
+
+This text consolidates the material result of the Phase 5G files previously
+referenced. It is intentionally a readable single-file handoff, not a copy of
+the large ignored historical datasets or the generated hourly JSON details.
+Those remain locally available at the paths listed below.
+
+==========================================================================
+1. SCOPE AND SAFETY
+==========================================================================
+
+Phase 5G had two completed tracks:
+
+Track A — Research Observability & Experiment Contract
+Track B — Market / Timeframe Structural Viability Audit
+
+Neither track created strategies, generated signals, ran a performance
+backtest, calculated strategy PnL, evaluated the reserved untouched test, or
+used a DEMO/LIVE order endpoint. LIVE remains disabled.
+
+EURUSD/M15 untouched interval remains UNTOUCHED:
+2025-09-01 through 2026-09-04.
+
+All bridge use in Track B was read-only:
+GET /v1/history/{symbol} and symbol metadata only.
+Zero orders. Zero demo-open/demo-close. Zero place-order/close-position calls.
+
+==========================================================================
+2. TRACK A — OBSERVABILITY CONTRACT
+==========================================================================
+
+Source document:
+PHASE5G_OBSERVABILITY_CONTRACT.md
+
+Implementation:
+src/fx/research/contracts.py
+
+Future research persists a deterministic bundle:
+
+  manifest.json
+  summary.json
+  trades.jsonl
+
+ResearchTradeRecord is strategy-neutral and includes:
+
+  experiment/run/variant/split identity
+  symbol, timeframe, side and lots
+  signal, entry and exit UTC timestamps
+  reference, bid, ask and execution prices at entry and exit
+  gross PnL, spread, slippage, commission, swap and net PnL
+  bars held, duration and terminal-insolvency context
+  derived entry/exit UTC hours
+
+The economic identity is enforced fail-closed:
+
+  net_pnl = gross_reference_pnl - spread_cost - slippage_cost
+            - commission_cost - swap_cost
+
+ExperimentManifest requires source-control identity, dataset/cost/non-spread/
+preregistration fingerprints, symbol/timeframe/split, exact variant registry,
+execution/account assumptions and research-rules reference. Serialization is
+strict canonical JSON: no NaN, Infinity or -Infinity. This enables future
+attribution by side, month, hour, duration, costs and sequence without reruns.
+
+Phase 5D/5E artifacts were not altered or rerun.
+
+==========================================================================
+3. TRACK B — FROZEN AVAILABILITY RULES
+==========================================================================
+
+Source preregistration:
+PHASE5G_VIABILITY_PREREGISTRATION.md
+
+Preregistration fingerprint:
+7bbeab4c4ee8b97aa555b52d13ef8a5b347b6350e3ac46ea1358efd522046e0d
+
+Frozen universe: exactly these nine cells:
+
+  EURUSD: M5, M15, H1
+  GBPUSD: M5, M15, H1
+  USDJPY: M5, M15, H1
+
+Read-only availability request:
+
+  2022-09-01T00:00:00Z through exclusive 2025-08-30T00:00:00Z
+
+The upper bound protects the EURUSD/M15 untouched interval. Bridge requests
+were block-wise and below its 20,000-bar cap:
+
+  M5: 60-day blocks
+  M15: 180-day blocks
+  H1: 365-day blocks
+
+Eligibility was mechanical, not chosen from price outcomes:
+
+  * no capture error;
+  * at least 24 full calendar months of observed temporal coverage;
+  * common interval is the maximum intersection of eligible cells;
+  * cells failing this criterion are INSUFFICIENT_DATA;
+  * observed gaps are recorded but do not permit date cherry-picking.
+
+Selected common window:
+
+  2022-09-01T00:00:00Z through exclusive 2025-08-30T00:00:00Z
+
+Eligible: EURUSD/M15-H1, GBPUSD/M15-H1, USDJPY/M15-H1.
+INSUFFICIENT_DATA: EURUSD/M5, GBPUSD/M5, USDJPY/M5.
+
+All M5 observations began only in May 2025, so M5 was not allowed to shorten
+the entire study.
+
+==========================================================================
+4. FROZEN MICROSTRUCTURE DEFINITIONS AND LABELS
+==========================================================================
+
+Source implementation:
+src/fx/research/phase5g_capture.py
+src/fx/research/phase5g_viability.py
+
+The report calculates only descriptive data-quality and microstructure fields:
+
+  availability, bar count, validation/gaps and coverage;
+  spread median, P75, P95 and P99;
+  absolute close-to-close movement and high-low bar range;
+  median and P95 spread-to-range burden;
+  UTC-hour microstructure when at least 50 observations exist.
+
+Normalization is dimensional:
+
+  spread_price = spread_points * broker symbol point
+  burden = spread_price / bar_range_price
+
+No cross-symbol conversion is guessed where metadata would be ambiguous.
+
+Frozen quality/label rule:
+
+  adequate data = >= 500 bars, coverage >= 0.98, no errors,
+                  and <= 50 unexpected gaps
+
+  VIABLE_FOR_FUTURE_RESEARCH:
+    adequate and median spread/range <= 0.25
+    and P95 spread/median-range <= 1.00
+
+  BORDERLINE:
+    adequate and median spread/range <= 0.50
+    and P95 spread/median-range <= 2.00
+
+  otherwise STRUCTURALLY_UNATTRACTIVE
+  failed availability rule = INSUFFICIENT_DATA
+
+These labels measure microstructure burden only. They do not mean profitable,
+unprofitable, strategy candidate, trade instruction or best market.
+
+==========================================================================
+5. RESULTS
+==========================================================================
+
+Machine-readable local report (gitignored):
+data/fx/research/results/phase5g_viability/viability_report.json
+
+Report fingerprint:
+2ed51e0cf7826cc1d390df7f1e8a1bdc778244be6d57de89ca2361d89254930d
+
+Cell                         Coverage  Median burden  P95 burden  Label
+EURUSD H1                    0.9923    0.1327         0.1845      VIABLE_FOR_FUTURE_RESEARCH
+EURUSD M15                   0.9915    0.2727         0.4545      BORDERLINE
+GBPUSD H1                    0.9923    0.1103         0.1724      VIABLE_FOR_FUTURE_RESEARCH
+GBPUSD M15                   0.9912    0.2394         0.3803      VIABLE_FOR_FUTURE_RESEARCH
+USDJPY H1                    0.9923    0.0936         0.1281      VIABLE_FOR_FUTURE_RESEARCH
+USDJPY M15                   0.9914    0.1939         0.3061      VIABLE_FOR_FUTURE_RESEARCH
+EURUSD / GBPUSD / USDJPY M5  n/a       n/a            n/a         INSUFFICIENT_DATA
+
+Unexpected gap counts:
+
+  H1: EURUSD 6; GBPUSD 6; USDJPY 6
+  M15: EURUSD 27; GBPUSD 45; USDJPY 34
+
+All eligible-cell counts remain below the frozen maximum of 50 unexpected
+gaps. No bars were filled, interpolated or repaired.
+
+==========================================================================
+6. DECISION MATRIX
+==========================================================================
+
+Q1. Is observability sufficient for future experiments without reruns?
+Yes. Future bundles persist manifest, summary and complete trade records.
+
+Q2. Which cells have sufficient data?
+All M15/H1 cells; no M5 cell.
+
+Q3/Q4. Are any eligible cells structurally too costly, and can M5 be judged?
+No eligible cell crosses the frozen unattractive threshold. M5 cannot be
+assessed because its history is insufficient.
+
+Q5. Does H1 reduce relative burden enough to justify later research?
+Yes, descriptively, H1 has lower burden than M15 for each symbol. This is not
+a profitability claim.
+
+Q6. Is EURUSD/M15 structurally reasonable despite rejected prior hypotheses?
+It is BORDERLINE, not structurally disqualified.
+
+Q7. Does at least one cell justify a future hypothesis budget?
+YES — FUTURE HYPOTHESIS DESIGN JUSTIFIED, but only through a new independent
+preregistration. No existing 5D/5E strategy was ported or rerun.
+
+==========================================================================
+7. TESTS AND WORKTREE
+==========================================================================
+
+Relevant test sources:
+
+  tests/fx/test_phase5g_contracts.py
+  tests/fx/test_phase5g_viability.py
+
+Executed:
+
+  Phase 5G targeted tests: 5 passed
+  Full suite: 706 passed, 8 skipped
+  git diff --check: passed
+
+No commit or push was made because the repository worktree already contains
+accumulated changes outside Phase 5G; an isolated commit would not be safe.
+
+==========================================================================
+8. ORIGINAL FILE INDEX
+==========================================================================
+
+Documents:
+  PHASE5G_OBSERVABILITY_CONTRACT.md
+  PHASE5G_VIABILITY_PREREGISTRATION.md
+  PHASE5G_VIABILITY_STATUS.md
+
+Implementation:
+  src/fx/research/contracts.py
+  src/fx/research/phase5g_capture.py
+  src/fx/research/phase5g_viability.py
+
+Tests:
+  tests/fx/test_phase5g_contracts.py
+  tests/fx/test_phase5g_viability.py
+
+Ignored local evidence:
+  data/fx/research/phase5g_availability/availability_ledger.json
+  data/fx/research/results/phase5g_viability/viability_report.json

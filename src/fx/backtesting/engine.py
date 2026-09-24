@@ -68,6 +68,9 @@ class FxEngineConfig:
     slippage_model: SlippageModel
     swap_model: SwapModel | None
     rollover_schedule: RolloverSchedule | None
+    # Research account policy.  Defaults to False to preserve Phase 5B's
+    # historical engine behaviour; research batches must opt in explicitly.
+    terminate_on_insolvency: bool = False
 
     def __post_init__(self) -> None:
         if self.lots <= 0:
@@ -96,7 +99,15 @@ class FxEngineConfig:
 class FxBacktestResult:
     trades: list[TradeResult]
     final_account: AccountState
-    equity_curve: list[tuple[object, Decimal]]  # (timestamp_utc, equity)
+    # (timestamp_utc, liquidation-value equity, held side)
+    equity_curve: list[tuple[object, Decimal, PositionSide]]
+    terminated_early: bool = False
+    termination_reason: str | None = None
+    termination_timestamp: object | None = None
+
+    @property
+    def insolvent(self) -> bool:
+        return self.termination_reason == "INSOLVENCY"
 
 
 class FxBacktestEngine:
@@ -115,7 +126,10 @@ class FxBacktestEngine:
         position: Position | None = None
         accrued_swap = Decimal("0")
         trades: list[TradeResult] = []
-        equity_curve: list[tuple[object, Decimal]] = []
+        equity_curve: list[tuple[object, Decimal, PositionSide]] = []
+        terminated_early = False
+        termination_reason: str | None = None
+        termination_timestamp: object | None = None
 
         # Causal shift: the target position known as of bar i's close
         # becomes the position to hold starting at bar i+1's open. Bar 0
@@ -164,6 +178,16 @@ class FxBacktestEngine:
                     position = None
                     accrued_swap = Decimal("0")
 
+                    # A close realizes all known costs.  Do not use a
+                    # subsequently generated signal to open a new position
+                    # after that realization has made the account insolvent.
+                    if cfg.terminate_on_insolvency and balance <= 0:
+                        equity_curve.append((bar.timestamp_utc, balance, PositionSide.FLAT))
+                        terminated_early = True
+                        termination_reason = "INSOLVENCY"
+                        termination_timestamp = bar.timestamp_utc
+                        break
+
                 if desired_side is not PositionSide.FLAT:
                     position = self._open(desired_side, bar)
                     open_bar_index = i
@@ -171,9 +195,18 @@ class FxBacktestEngine:
             equity = balance
             if position is not None:
                 equity = balance + self._unrealized_pnl(position, bar) - accrued_swap
-            equity_curve.append((bar.timestamp_utc, equity))
+            equity_curve.append((bar.timestamp_utc, equity, current_side if position is None else position.side))
 
-        if position is not None:
+            # Equity is conservative liquidation value (see AccountState).
+            # This deliberately does not invent an intrabar margin call or a
+            # broker stop-out: we record the observed mark and stop there.
+            if cfg.terminate_on_insolvency and equity <= 0:
+                terminated_early = True
+                termination_reason = "INSOLVENCY"
+                termination_timestamp = bar.timestamp_utc
+                break
+
+        if position is not None and not terminated_early:
             trade = self._close(
                 position, bars[-1], len(bars) - 1 - (open_bar_index or len(bars) - 1), accrued_swap
             )
@@ -181,16 +214,23 @@ class FxBacktestEngine:
             balance += trade.net_pnl
             realized_pnl += trade.net_pnl
             position = None
-            equity_curve[-1] = (bars[-1].timestamp_utc, balance)
+            equity_curve[-1] = (bars[-1].timestamp_utc, balance, PositionSide.FLAT)
 
         final_account = AccountState(
             initial_balance=cfg.initial_balance,
             balance=balance,
             realized_pnl=realized_pnl,
             position=position,
-            equity=balance,
+            equity=equity_curve[-1][1] if equity_curve else balance,
         )
-        return FxBacktestResult(trades=trades, final_account=final_account, equity_curve=equity_curve)
+        return FxBacktestResult(
+            trades=trades,
+            final_account=final_account,
+            equity_curve=equity_curve,
+            terminated_early=terminated_early,
+            termination_reason=termination_reason,
+            termination_timestamp=termination_timestamp,
+        )
 
     def _open(self, side: PositionSide, bar: FxBar) -> Position:
         cfg = self.config

@@ -156,6 +156,12 @@ def symbol_response(info: BackendSymbolInfo) -> dict:
         "currency_base": info.currency_base,
         "currency_profit": info.currency_profit,
         "currency_margin": info.currency_margin,
+        # Broker-reported financing terms.  They are observations, not a
+        # historical cost model: Phase 5C must record their capture time.
+        "swap_long": str(info.swap_long) if info.swap_long is not None else None,
+        "swap_short": str(info.swap_short) if info.swap_short is not None else None,
+        "swap_mode": info.swap_mode,
+        "swap_rollover3days": info.swap_rollover3days,
     }
 
 

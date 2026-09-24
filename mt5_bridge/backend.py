@@ -121,6 +121,10 @@ class BackendSymbolInfo:
     currency_base: str | None = None
     currency_profit: str | None = None
     currency_margin: str | None = None
+    swap_long: Decimal | None = None
+    swap_short: Decimal | None = None
+    swap_mode: int | None = None
+    swap_rollover3days: int | None = None
 
 
 @dataclass(frozen=True)
@@ -624,6 +628,13 @@ class RealMT5Backend:
         bars = []
         for r in rates:
             time_utc = datetime.fromtimestamp(r["time"], tz=_utc())
+            # MT5 normally honours copy_rates_range's bounds, but a real HFM
+            # terminal returned its oldest cached bar for a request entirely
+            # before local history.  The bridge is the data-contract boundary:
+            # never leak an out-of-range bar to a caller that will fingerprint
+            # or split the result as if it matched the requested interval.
+            if not start <= time_utc <= end:
+                continue
             bars.append(
                 BackendBar(
                     time_utc=time_utc,
@@ -797,6 +808,10 @@ def _mt5_symbol_info_to_backend(info) -> BackendSymbolInfo:
         currency_base=getattr(info, "currency_base", None),
         currency_profit=getattr(info, "currency_profit", None),
         currency_margin=getattr(info, "currency_margin", None),
+        swap_long=clean_decimal(float(info.swap_long)) if getattr(info, "swap_long", None) is not None else None,
+        swap_short=clean_decimal(float(info.swap_short)) if getattr(info, "swap_short", None) is not None else None,
+        swap_mode=getattr(info, "swap_mode", None),
+        swap_rollover3days=getattr(info, "swap_rollover3days", None),
     )
 
 

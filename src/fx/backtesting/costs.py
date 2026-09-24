@@ -191,6 +191,31 @@ class FixedSwapModel(SwapModel):
 
 
 @dataclass(frozen=True)
+class SideAwareFixedSwapModel(SwapModel):
+    """Broker-observed per-lot swap rates for long and short positions.
+
+    Rates follow the engine convention: a positive number is a debit and a
+    negative number is a credit.  ``triple_swap_weekday`` uses Python's
+    ``datetime.weekday`` convention (Monday=0, Wednesday=2), deliberately
+    stated here instead of relying on MT5 enum numeric values at runtime.
+    ``None`` means that no triple-day multiplier has been verified.
+    """
+
+    long_rate_per_lot: Decimal
+    short_rate_per_lot: Decimal
+    triple_swap_weekday: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.triple_swap_weekday is not None and not 0 <= self.triple_swap_weekday <= 6:
+            raise ValueError("triple_swap_weekday must be in [0, 6] (Monday=0)")
+
+    def charge_for_crossing(self, side: PositionSide, lots: Decimal, crossing_time: datetime) -> Decimal:
+        rate = self.long_rate_per_lot if side is PositionSide.LONG else self.short_rate_per_lot
+        multiplier = Decimal("3") if self.triple_swap_weekday == crossing_time.weekday() else Decimal("1")
+        return rate * lots * multiplier
+
+
+@dataclass(frozen=True)
 class RolloverSchedule:
     """An explicit, configured set of daily rollover boundaries (Section
     15): the engine does not assume a New York close or any other

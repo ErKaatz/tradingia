@@ -22,3 +22,8 @@ results/
 # its own copy of mt5_bridge/ entirely; this only matters for local
 # testing on Linux.
 *.sqlite3
+
+# Optional repository-local operational runtime state. The documented default
+# is outside the repository, but this prevents an explicit local override
+# from leaking decision journals into source control.
+.tradingia-runtime/
