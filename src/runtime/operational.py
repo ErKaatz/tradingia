@@ -337,6 +337,27 @@ class OperationalRuntime:
         self._heartbeat(result, time.monotonic() - started)
         return result
 
+    def _sleep_interruptibly(self, seconds: float) -> None:
+        # A plain time.sleep(seconds) is NOT interrupted by SIGINT/SIGTERM
+        # here: request_stop() only sets a flag and returns normally, and
+        # per PEP 475 a signal handler that doesn't raise causes sleep() to
+        # transparently continue for its full remaining duration. Without
+        # this, an operator's Ctrl+C/SIGTERM during a degraded (up to
+        # max_backoff_seconds) backoff window would appear to hang for as
+        # long as five minutes instead of stopping promptly.
+        deadline = time.monotonic() + seconds
+        while not self._stop_requested:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            time.sleep(min(1.0, remaining))
+
+    @staticmethod
+    def _next_backoff(current_backoff: float, cycle_seconds: float, max_backoff_seconds: float, healthy: bool) -> float:
+        if healthy:
+            return cycle_seconds
+        return min(max_backoff_seconds, max(cycle_seconds, current_backoff * 2))
+
     def run_forever(self) -> None:
         previous_handlers = {sig: signal.signal(sig, self.request_stop) for sig in (signal.SIGINT, signal.SIGTERM)}
         backoff = self.config.cycle_seconds
@@ -345,9 +366,10 @@ class OperationalRuntime:
             with RuntimeLock(lock_path):
                 while not self._stop_requested:
                     result = self.run_cycle()
-                    healthy = result.preflight_passed
-                    backoff = self.config.cycle_seconds if healthy else min(self.config.max_backoff_seconds, max(self.config.cycle_seconds, backoff * 2))
-                    time.sleep(backoff)
+                    backoff = self._next_backoff(
+                        backoff, self.config.cycle_seconds, self.config.max_backoff_seconds, result.preflight_passed
+                    )
+                    self._sleep_interruptibly(backoff)
         finally:
             for sig, handler in previous_handlers.items():
                 signal.signal(sig, handler)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -135,3 +137,41 @@ def test_no_trade_soak_has_no_execution_capability_or_growth(tmp_path):
     assert runtime._cycle_count == 1000
     assert not hasattr(runtime.executor, "place_order")
     assert runtime.heartbeat_path.exists()
+
+
+def test_backoff_escalates_on_degraded_cycles_and_caps_at_max():
+    next_backoff = OperationalRuntime._next_backoff
+    backoff = 30.0  # config.cycle_seconds
+    for expected in (60.0, 120.0, 240.0, 300.0, 300.0):
+        backoff = next_backoff(backoff, cycle_seconds=30.0, max_backoff_seconds=300.0, healthy=False)
+        assert backoff == expected
+
+
+def test_backoff_resets_to_cycle_seconds_as_soon_as_a_cycle_is_healthy():
+    next_backoff = OperationalRuntime._next_backoff
+    escalated = next_backoff(30.0, cycle_seconds=30.0, max_backoff_seconds=300.0, healthy=False)
+    assert escalated > 30.0
+    recovered = next_backoff(escalated, cycle_seconds=30.0, max_backoff_seconds=300.0, healthy=True)
+    assert recovered == 30.0
+
+
+def test_run_forever_stops_promptly_when_stop_requested_during_a_long_backoff(tmp_path):
+    # Regression test: a plain time.sleep(backoff) is NOT interrupted by
+    # request_stop() (PEP 475 means an unhandled-exception signal handler
+    # just lets sleep() continue for its full remaining duration) -- without
+    # _sleep_interruptibly, this test would take the full cycle_seconds
+    # (here deliberately large relative to the assertion's tolerance) to
+    # return instead of stopping within about a second of the request.
+    cfg = config(tmp_path, cycle_seconds=5.0, max_backoff_seconds=5.0)
+    runtime = OperationalRuntime(FakeClient(), cfg)
+
+    def request_stop_soon():
+        time.sleep(0.2)
+        runtime.request_stop()
+
+    threading.Thread(target=request_stop_soon, daemon=True).start()
+    started = time.monotonic()
+    runtime.run_forever()
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 2.0
