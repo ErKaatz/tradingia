@@ -51,10 +51,15 @@ def test_validator_further_restricts_the_grid():
     assert grid == [{"lookback": 2}, {"lookback": 4}]
 
 
-def test_unknown_strategy_name_yields_an_empty_grid_rather_than_raising():
-    # generate_parameter_grid treats any exception from build_strategy as
-    # "this combination is invalid", including an unknown strategy name --
-    # so a typo'd strategy name silently produces zero candidates instead
-    # of a clear error. Documented here as current behavior.
-    grid = generate_parameter_grid("not_a_real_strategy", {"x": [1, 2]})
-    assert grid == []
+def test_unknown_strategy_name_raises_immediately_instead_of_yielding_an_empty_grid():
+    # Regression test: an unknown/typo'd strategy name must fail fast with
+    # a clear error rather than being silently swallowed by the
+    # per-combination validity check (which would otherwise produce an
+    # empty grid indistinguishable from "every combination was invalid").
+    with pytest.raises(ValueError, match="Unknown strategy"):
+        generate_parameter_grid("not_a_real_strategy", {"x": [1, 2]})
+
+
+def test_unknown_strategy_name_raises_even_with_empty_parameter_study():
+    with pytest.raises(ValueError, match="Unknown strategy"):
+        generate_parameter_grid("not_a_real_strategy", {})
